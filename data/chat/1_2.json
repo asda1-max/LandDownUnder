@@ -1,0 +1,23 @@
+[
+  {
+    "type": "text",
+    "sender": "1",
+    "recipient": "2",
+    "data": "Iu4rIfdLl758U2/1GLM9H0XOGA97H0a+NTk8IV/vGZkA+DKMY9A58Y3hPMVgJRQ=",
+    "vigenere_key_debug": "a"
+  },
+  {
+    "type": "stegano",
+    "sender": "1",
+    "recipient": "2",
+    "data": "temp_stegano\\stego_IMG_4809.png",
+    "text_key_debug": "aaa"
+  },
+  {
+    "type": "stegano",
+    "sender": "1",
+    "recipient": "2",
+    "data": "temp_stegano\\stego_Shakatak_Poster.png",
+    "text_key_debug": "aaa"
+  }
+]

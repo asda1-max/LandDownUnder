@@ -24,8 +24,20 @@ def verify_password(stored_salt_hex, stored_hash_hex, password_to_check):
 
 # --- MANAJEMEN USER ---
 class UserManager:
-    def __init__(self, filename='users.json'):
-        self.filename = filename
+    def __init__(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Naik satu folder (ke "Aplikas")
+        parent_dir = os.path.dirname(current_dir)
+
+        # Gabungkan ke folder "jsonfile"
+        json_folder = os.path.join(parent_dir, "data")
+
+        # Pastikan foldernya ada
+        os.makedirs(json_folder, exist_ok=True)
+
+        # Path file JSON
+        json_path = os.path.join(json_folder, "userdat.json")
+        self.filename = json_path
         self.users = self.load_users()
 
     def load_users(self):
@@ -63,8 +75,22 @@ class UserManager:
 
 # --- MANAJEMEN PESAN ---
 class MessageManager:
-    def __init__(self, chat_directory='chats'):
-        self.chat_dir = chat_directory
+    
+    def __init__(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Naik satu folder (ke "Aplikas")
+        parent_dir = os.path.dirname(current_dir)
+
+        # Gabungkan ke folder "jsonfile"
+        json_folder = os.path.join(parent_dir, "data")
+
+        # Pastikan foldernya ada
+        os.makedirs(json_folder, exist_ok=True)
+
+        # Path file JSON
+        json_path = os.path.join(json_folder, "chat")
+
+        self.chat_dir = json_path
         if not os.path.exists(self.chat_dir):
             os.makedirs(self.chat_dir)
 
