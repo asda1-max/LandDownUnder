@@ -3,9 +3,6 @@ import os
 import json
 import uuid
 import psutil
-from hashlib import pbkdf2_hmac
-from Crypto.Cipher import AES
-from Crypto.Random import get_random_bytes
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton,
@@ -14,65 +11,29 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QThread, QObject, Signal, Slot
 from PySide6.QtGui import QIcon
 
+from utils import (
+    encrypt_config, decrypt_config, HARDCODED_SECRET,
+    SALT_SIZE, KEY_SIZE, ITERATIONS, HASH_ALG
+)
+
 # --- Konfigurasi dari skrip asli ---
+def get_base_path():
+    """ 
+    Mendapatkan path ke DIREKTORI ROOT PROYEK (tempat 'auth/' dan 'data/' berada).
+    """
+    if getattr(sys, 'frozen', False):
+        # Dijalankan sebagai .exe, path dasarnya adalah folder tempat .exe berada
+        return os.path.dirname(sys.executable)
+    else:
+        # Dijalankan sebagai .py, asumsikan file ini ada di dalam subfolder (cth: 'Executables')
+        # Path: .../Project/Executables/setup_usb.py -> .../Project/
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 KEY_FILE_NAME = ".my_crypto_app_key"
-
-# --- Path Konfigurasi Baru ---
-# Dapatkan path absolut dari skrip ini
-script_path = os.path.abspath(__file__)
-# Dapatkan direktori tempat skrip ini berada
-script_dir = os.path.dirname(script_path)
-# Dapatkan direktori parent dari direktori skrip
-parent_dir = os.path.dirname(script_dir)
-# Tentukan path file konfigurasi di direktori parent
-LOCAL_CONFIG_FILE = os.path.join(parent_dir, "auth/auth.config")
-
-HARDCODED_SECRET = "ini-adalah-kunci-rahasia-saya-yang-sangat-panjang-12345"
-
-# Konfigurasi PBKDF2 (key derivation)
-SALT_SIZE = 16
-KEY_SIZE = 32  # 256-bit key
-ITERATIONS = 100000
-HASH_ALG = "sha256"
+parent_dir = get_base_path()
+LOCAL_CONFIG_FILE = os.path.join(parent_dir, "auth", "auth.config")
 
 # --- Fungsi Enkripsi/Dekripsi (Tidak berubah) ---
-def encrypt_config(plain_text_key, password):
-    """Mengenkripsi teks (kunci USB) menggunakan AES-GCM."""
-    salt = get_random_bytes(SALT_SIZE)
-    key = pbkdf2_hmac(HASH_ALG, password.encode("utf-8"), salt, ITERATIONS, KEY_SIZE)
-
-    cipher = AES.new(key, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(plain_text_key.encode("utf-8"))
-
-    encrypted_data = {
-        "salt": salt.hex(),
-        "nonce": cipher.nonce.hex(),
-        "tag": tag.hex(),
-        "ciphertext": ciphertext.hex(),
-    }
-    return json.dumps(encrypted_data).encode("utf-8")
-
-
-def decrypt_config(encrypted_data_bytes, password):
-    """Mendekripsi file config terenkripsi dan memverifikasi integritasnya."""
-    try:
-        encrypted_data = json.loads(encrypted_data_bytes.decode("utf-8"))
-        salt = bytes.fromhex(encrypted_data["salt"])
-        nonce = bytes.fromhex(encrypted_data["nonce"])
-        tag = bytes.fromhex(encrypted_data["tag"])
-        ciphertext = bytes.fromhex(encrypted_data["ciphertext"])
-
-        key = pbkdf2_hmac(HASH_ALG, password.encode("utf-8"), salt, ITERATIONS, KEY_SIZE)
-
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        plain_text_bytes = cipher.decrypt_and_verify(ciphertext, tag)
-        return plain_text_bytes.decode("utf-8")
-
-    except Exception as e:
-        print(f"❌ Dekripsi gagal: {e}")
-        return None
-
-
 # --- Utilitas USB (Tidak berubah) ---
 def find_removable_drives():
     """Mendeteksi semua removable drive (USB)."""
@@ -112,20 +73,66 @@ class DriveSetter(QObject):
     @Slot()
     def run(self):
         try:
-            # Generate key unik untuk USB
+            # --- LOGIKA BARU UNTUK MULTI-KEY ---
+            
+            # 1. Baca daftar kunci yang ada (jika ada)
+            current_keys = []
+            if os.path.exists(LOCAL_CONFIG_FILE):
+                print(f"Membaca {LOCAL_CONFIG_FILE} yang ada...")
+                try:
+                    with open(LOCAL_CONFIG_FILE, "rb") as f:
+                        encrypted_data = f.read()
+                    
+                    # Dekripsi data untuk mendapatkan JSON string dari list
+                    decrypted_json_list = decrypt_config(encrypted_data, HARDCODED_SECRET)
+                    
+                    if decrypted_json_list:
+                        current_keys = json.loads(decrypted_json_list)
+                        if not isinstance(current_keys, list):
+                            print("Data korup, bukan list. Memulai dari awal.")
+                            current_keys = []
+                        else:
+                            print(f"Ditemukan {len(current_keys)} kunci yang sudah terdaftar.")
+                    else:
+                        # Ini terjadi jika file ada tapi password/enkripsi gagal
+                        print("Gagal dekripsi config. Memulai dari awal.")
+                        current_keys = []
+                        
+                except Exception as e:
+                    print(f"Error membaca/dekripsi config. Memulai dari awal. Error: {e}")
+                    current_keys = []
+            else:
+                print("File config tidak ditemukan. Membuat baru.")
+                current_keys = []
+
+            # 2. Generate key UNIK baru untuk USB
             secret_key = str(uuid.uuid4())
             key_file_path = os.path.join(self.target_drive_path, KEY_FILE_NAME)
 
-            # 1. Simpan key ke USB
+            # 3. Simpan key baru ke USB
             with open(key_file_path, "w") as f:
                 f.write(secret_key)
-
-            # 2. Enkripsi key ke file lokal
-            encrypted_config_data = encrypt_config(secret_key, HARDCODED_SECRET)
             
+            # 4. Tambahkan key baru ke daftar (JANGAN TIMPA)
+            if secret_key not in current_keys:
+                current_keys.append(secret_key)
+                print("Kunci baru ditambahkan ke daftar.")
+            else:
+                print("Peringatan: Kunci ini sudah ada di daftar.")
+                
+            # 5. Enkripsi SELURUH DAFTAR (sebagai JSON string) kembali ke file lokal
+            new_json_list_string = json.dumps(current_keys)
+            encrypted_config_data = encrypt_config(new_json_list_string, HARDCODED_SECRET)
+            
+            # Pastikan direktori 'auth' ada
+            os.makedirs(os.path.dirname(LOCAL_CONFIG_FILE), exist_ok=True)
+            
+            # Timpa file config dengan daftar yang sudah diperbarui
             with open(LOCAL_CONFIG_FILE, "wb") as f:
                 f.write(encrypted_config_data)
 
+            # --- SELESAI LOGIKA BARU ---
+            
             self.setup_success.emit(key_file_path, LOCAL_CONFIG_FILE)
 
         except Exception as e:

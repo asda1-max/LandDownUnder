@@ -15,7 +15,7 @@ from chat import ChatPage
 from utils import UserManager, MessageManager
 
 # ====== Import Autentikasi USB ======
-from usb_auth import get_expected_key, check_usb_key, monitor_usb_drive, LOCAL_CONFIG_FILE
+from usb_auth import get_all_valid_keys, check_usb_key, monitor_usb_drive, LOCAL_CONFIG_FILE
 
 
 class MainWindow(QStackedWidget):
@@ -30,7 +30,11 @@ class MainWindow(QStackedWidget):
         # Halaman-halaman utama
         self.login_page = LoginPage(self.show_dashboard, self.show_register, self.user_manager)
         self.register_page = RegisterPage(self.show_login, self.user_manager)
-        self.dashboard_page = DashboardPage(self.show_login, self.show_chat)
+        self.dashboard_page = DashboardPage(
+            logout_callback=self.show_login, 
+            switch_to_chat=self.show_chat, 
+            user_manager=self.user_manager
+        )
         self.chat_page = None
 
         # Tambahkan ke QStackedWidget
@@ -96,24 +100,26 @@ if __name__ == "__main__":
     root_usb = tk.Tk()
     root_usb.withdraw()
 
-    expected_key = get_expected_key()
+    valid_keys = get_all_valid_keys()
 
-    if expected_key is None:
+    if not valid_keys:  # Cek jika list-nya kosong
         messagebox.showerror(
             "Setup Error",
-            f"File '{LOCAL_CONFIG_FILE}' tidak ditemukan.\n"
+            f"File '{LOCAL_CONFIG_FILE}' tidak ditemukan atau tidak ada USB yang terdaftar.\n"
             "Jalankan setup_usb.py terlebih dahulu untuk mendaftarkan USB key."
         )
         sys.exit()
 
     while True:
-        if check_usb_key(expected_key):
+        # check_usb_key sekarang menerima list 'valid_keys'
+        if check_usb_key(valid_keys):
             print("✅ USB Authentication successful.")
             break
         else:
+            # Ubah pesan untuk mencerminkan multi-key
             should_retry = messagebox.askretrycancel(
                 "USB Key Not Found",
-                "Masukkan USB key yang terdaftar lalu klik Retry."
+                "Masukkan SALAH SATU USB key yang terdaftar lalu klik Retry."
             )
             if not should_retry:
                 print("❌ Dibatalkan oleh pengguna.")
@@ -147,7 +153,9 @@ if __name__ == "__main__":
     # --- 3️⃣ Jalankan thread untuk memantau USB selama app berjalan ---
     monitor_thread = threading.Thread(
         target=monitor_usb_drive,
-        args=(app, expected_key),   # ✅ kirim QApplication instance, bukan window
+        # --- PERUBAHAN DI SINI ---
+        args=(app, valid_keys),  # Kirim list 'valid_keys'
+        # --- SELESAI PERUBAHAN ---
         daemon=True
     )
     monitor_thread.start()

@@ -1,48 +1,72 @@
+# Di dalam file usb_auth.py
+
 import os
 import time
 import psutil
+import sys
+import json  # <-- TAMBAHKAN IMPORT INI
 from tkinter import messagebox
-from setup_usb import decrypt_config
+from utils import get_base_path
+from utils import decrypt_config # Ini diimpor dari setup_usb.py
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QMetaObject, Qt, Q_ARG
 
-# --- Path Konfigurasi Baru ---
-# Dapatkan path absolut dari skrip ini
-script_path = os.path.abspath(__file__)
-# Dapatkan direktori tempat skrip ini berada
-script_dir = os.path.dirname(script_path)
-# Dapatkan direktori parent dari direktori skrip
-parent_dir = os.path.dirname(script_dir)
-# Tentukan path file konfigurasi di direktori parent
-LOCAL_CONFIG_FILE = os.path.join(parent_dir, "auth/auth.config")
-USB_KEY_FILE = ".my_crypto_app_key"
-MASTER_SECRET = "ini-adalah-kunci-rahasia-saya-yang-sangat-panjang-12345"  # sama persis dengan setup_usb.py
-
-
-def get_expected_key():
+# --- Path Konfigurasi (Tidak berubah) ---
+def get_base_path():
+    """ 
+    Fungsi ini harus disalin dari utils.py karena ini file terpisah
     """
-    Membaca dan mendekripsi file konfigurasi lokal untuk mendapatkan USB key yang diharapkan.
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        # Asumsi file ini ada di Executables/
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+parent_dir = get_base_path()
+LOCAL_CONFIG_FILE = os.path.join(parent_dir, "auth", "auth.config")
+USB_KEY_FILE = ".my_crypto_app_key"
+from utils import HARDCODED_SECRET as MASTER_SECRET
+
+
+# --- NAMA FUNGSI DAN LOGIKA DIUBAH ---
+def get_all_valid_keys():
+    """
+    Membaca dan mendekripsi file config lokal untuk mendapatkan DAFTAR
+    semua USB key yang valid.
     """
     if not os.path.exists(LOCAL_CONFIG_FILE):
         print(f"⚠️ File {LOCAL_CONFIG_FILE} tidak ditemukan.")
-        return None
+        return []  # Kembalikan list kosong
 
     try:
         with open(LOCAL_CONFIG_FILE, "rb") as f:
             encrypted_data = f.read()
 
-        expected_key = decrypt_config(encrypted_data, MASTER_SECRET)
-        if not expected_key:
+        # Dekripsi data untuk mendapatkan JSON string dari list
+        decrypted_json_list = decrypt_config(encrypted_data, MASTER_SECRET)
+        
+        if not decrypted_json_list:
             print("⚠️ Gagal mendekripsi config. Pastikan password benar.")
-            return None
-        return expected_key.strip()
+            return []  # Kembalikan list kosong
+
+        # Parse JSON string menjadi Python list
+        valid_keys = json.loads(decrypted_json_list)
+        
+        if not isinstance(valid_keys, list):
+             print("⚠️ Data config korup, bukan list.")
+             return []
+
+        print(f"Berhasil memuat {len(valid_keys)} kunci yang terdaftar.")
+        return valid_keys
+        
     except Exception as e:
         print(f"❌ Error membaca {LOCAL_CONFIG_FILE}: {e}")
-        return None
+        return []  # Kembalikan list kosong
 
 
 def find_removable_drives():
     """Mendeteksi semua drive removable (USB)."""
+    # ... (Fungsi ini tidak berubah) ...
     drives = []
     for partition in psutil.disk_partitions():
         if "removable" in partition.opts or not "fixed" in partition.opts:
@@ -50,9 +74,11 @@ def find_removable_drives():
     return drives
 
 
-def find_usb_key_drive(expected_key):
+# --- LOGIKA FUNGSI INI DIUBAH ---
+def find_usb_key_drive(valid_key_list: list):
     """
-    Mencari USB drive yang memiliki file .my_crypto_app_key dengan key yang cocok.
+    Mencari USB drive yang memiliki key yang cocok dengan
+    SALAH SATU key di dalam valid_key_list.
     """
     drives = find_removable_drives()
     for drive in drives:
@@ -61,41 +87,49 @@ def find_usb_key_drive(expected_key):
             try:
                 with open(key_path, "r") as f:
                     key_value = f.read().strip()
-                if key_value == expected_key:
+                
+                # Cek apakah key di USB ada di dalam DAFTAR key yang valid
+                if key_value in valid_key_list:
                     print(f"✅ USB key cocok ditemukan di: {drive}")
                     return drive
+                else:
+                    print(f"⚠️ Ditemukan USB key di {drive}, tapi key tidak cocok/terdaftar.")
+                    
             except Exception:
-                continue
+                continue  # Lanjut ke drive berikutnya jika ada error baca
     return None
 
 
-def check_usb_key(expected_key):
+# --- ARGUMEN FUNGSI INI DIUBAH ---
+def check_usb_key(valid_key_list: list):
     """Mengecek apakah USB dengan key yang cocok sedang terpasang."""
-    return find_usb_key_drive(expected_key) is not None
+    return find_usb_key_drive(valid_key_list) is not None
 
 
-def monitor_usb_drive(qt_app, expected_key):
+# --- ARGUMEN FUNGSI INI DIUBAH ---
+def monitor_usb_drive(qt_app, valid_key_list: list):
     """
-    Memantau keberadaan USB key secara terus-menerus.
-    Jika dilepas, aplikasi menampilkan peringatan dan menutup Qt secara aman.
+    Memantau keberadaan SALAH SATU USB key yang valid.
+    Jika dilepas, aplikasi akan ditutup.
     """
-    print("🔍 Memulai pemantauan USB key...")
+    print("🔍 Memulai pemantauan USB key (mode multi-key)...")
     while True:
-        if not check_usb_key(expected_key):
-            print("❌ USB key dilepas! Menutup aplikasi demi keamanan...")
+        # check_usb_key sekarang menerima list
+        if not check_usb_key(valid_key_list):
+            print("❌ SEMUA USB key terdaftar dilepas! Menutup aplikasi...")
             try:
                 messagebox.showwarning(
                     "USB Key Removed",
-                    "USB key dilepas! Aplikasi akan ditutup demi keamanan."
+                    "USB key terdaftar dilepas! Aplikasi akan ditutup demi keamanan."
                 )
             except Exception:
-                pass
+                pass  # Gagal tampilkan popup jika GUI thread sudah mati
 
-            # ✅ Kirim perintah quit ke thread utama Qt, bukan kill paksa
+            # Kirim sinyal quit ke thread utama Qt
             QMetaObject.invokeMethod(
                 qt_app,
                 "quit",
                 Qt.QueuedConnection
             )
-            return  # hentikan loop monitoring
+            return  # Hentikan thread monitor
         time.sleep(2)
