@@ -57,7 +57,7 @@ def verify_password(stored_salt_hex, stored_hash_hex, password_to_check):
         return False
 
 # --- [ LOGIKA API KLIEN ] ---
-API_BASE_URL = "https://morsz.azeroth.site/" 
+API_BASE_URL = "https://sorasaki.azeroth.site/" 
 
 # --- MANAJEMEN USER (Tidak berubah) ---
 class UserManager:

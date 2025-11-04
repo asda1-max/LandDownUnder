@@ -50,7 +50,7 @@ class ChatPage(QWidget):
         self.chat_id = self.message_manager.get_chat_id(self.current_user, self.recipient_username)
         self.session_crypto = CryptoEngine(shared_password)
         
-        self.api_url = "https://morsz.azeroth.site/"
+        self.api_url = "https://sorasaki.azeroth.site/"
         self.MAX_FILE_SIZE = 2 * 1024 * 1024 # 2MB
         
         self.base_data_dir = "local_data" 
@@ -276,12 +276,16 @@ class ChatPage(QWidget):
             
             # [REQUEST #2] Simpan ke cache agar thumbnail pengirim muncul
             message_id = self.get_message_id(metadata)
-            cached_stego_path = os.path.join(self.temp_stegano_dir, file_id or base_filename)
+            
+            # [PERBAIKAN] Tentukan path cache menggunakan file_id yang unik dari server
+            cached_stego_path = os.path.join(self.temp_stegano_dir, file_id) 
+            
             try:
-                # Salin file asli ke cache stego
+                # Salin file stego (temp_filename) ke cache, BUKAN file asli (file_path)
                 if not os.path.exists(cached_stego_path):
                     import shutil
-                    shutil.copy(file_path, cached_stego_path)
+                    # [PERBAIKAN] Salin file yang SUDAH ADA PESANNYA (temp_filename)
+                    shutil.copy(temp_filename, cached_stego_path) 
             except Exception as e:
                 print(f"Gagal cache stego path: {e}")
             
