@@ -49,11 +49,11 @@ class MainWindow(QStackedWidget):
     def show_login(self):
         self.current_user = None
         self.setCurrentWidget(self.login_page)
-        self.setFixedSize(420, 320)
+        self.setFixedSize(1200, 800)
 
     def show_register(self):
         self.setCurrentWidget(self.register_page)
-        self.setFixedSize(480, 360)
+        self.setFixedSize(1200, 360)
 
     def show_dashboard(self, username=""):
         if username:
@@ -91,7 +91,7 @@ class MainWindow(QStackedWidget):
 
         self.addWidget(self.chat_page)
         self.setCurrentWidget(self.chat_page)
-        self.setFixedSize(600, 800)
+        self.setFixedSize(1200, 800)
 
 
 # ========== PROGRAM UTAMA ==========

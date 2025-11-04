@@ -133,13 +133,18 @@ class MessageManager:
 
     def save_message(self, chat_id, message_data):
         # ... (kode tidak berubah)
-        message_data['chat_id'] = chat_id
-        if message_data.get('type') in ['stegano', 'file']:
-             message_data['data'] = None
+        message_data_copy = message_data.copy() # [REVISI] Salin data agar tidak merusak metadata lokal
+        message_data_copy['chat_id'] = chat_id
+        if message_data_copy.get('type') in ['stegano', 'file']:
+             message_data_copy['data'] = None
+        # Hapus timestamp sisi klien, server akan menambahkannya
+        if 'db_timestamp' in message_data_copy:
+            del message_data_copy['db_timestamp']
+            
         try:
             def send_in_thread():
                 try:
-                    requests.post(f"{self.api_url}/save_message", json=message_data, timeout=10)
+                    requests.post(f"{self.api_url}/save_message", json=message_data_copy, timeout=10)
                     print("Pesan (metadata) berhasil dikirim ke server.")
                 except requests.exceptions.RequestException as e:
                     print(f"Gagal mengirim pesan: {e}")
@@ -205,7 +210,7 @@ class CryptoEngine:
             raise ValueError("Gagal mendekripsi data: Password salah atau data korup.")
 
 # --- [INSTRUKSI 2: FUNGSI HELPER WHITE-MIST] ---
-
+# (Tidak berubah)
 def encrypt_whitemist(data_bytes: bytes, key: str) -> str:
     """
     Enkripsi bytes file menggunakan White-Mist.

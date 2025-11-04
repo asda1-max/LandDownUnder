@@ -6,43 +6,58 @@ from PySide6.QtGui import QFont, QPalette, QColor
 from PySide6.QtCore import Qt
 
 class LoginPage(QWidget):
+    
+    # --- [BARU] Palet Warna dari Dashboard ---
+    COLOR_BACKGROUND = "#1A1B2E"
+    COLOR_PANE_LEFT = "#272540" # Dipakai untuk text color di tombol gold
+    COLOR_CARD_BG = "#272540"
+    COLOR_CARD = "#3E3C6E"     # Background input
+    COLOR_TEXT = "#F0F0F5"
+    COLOR_TEXT_SUBTLE = "#A9A8C0"
+    COLOR_GOLD = "#D4AF37"
+    COLOR_GOLD_HOVER = "#F0C44F"
+    COLOR_GOLD_PRESSED = "#B8860B"
+    # -----------------------------------------------
+
     def __init__(self, switch_to_dashboard, switch_to_register, user_manager):
         super().__init__()
         self.switch_to_dashboard = switch_to_dashboard
         self.switch_to_register = switch_to_register
         self.user_manager = user_manager
         
-        # --- PERUBAHAN ---
-        # Diperlukan agar QWidget utama mau menerima warna background dari stylesheet
         self.setAutoFillBackground(True) 
         
         self.init_ui()
-        self.apply_styles() # Panggil fungsi styling
+        self.apply_styles() # Panggil fungsi styling baru
         
     def init_ui(self):
-        # (Fungsi ini SAMA PERSIS seperti sebelumnya, tidak ada logika yang diubah)
-        self.resize(420, 320)
+        # [REVISI] Ukuran disesuaikan untuk padding baru
+        self.resize(480, 400) 
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(35, 35, 35, 35)
+        layout.setSpacing(20) # Beri jarak lebih
+        layout.setContentsMargins(40, 40, 40, 40) # Padding lebih besar
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         title = QLabel("Welcome Back 💙")
         title.setFont(QFont("Segoe UI", 22, QFont.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setObjectName("titleLabel") # [BARU] ID untuk styling
 
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("Username")
+        self.user_input.setFixedHeight(45) # [BARU] Samakan tinggi
 
         self.pass_input = QLineEdit()
         self.pass_input.setPlaceholderText("Password")
         self.pass_input.setEchoMode(QLineEdit.Password)
         self.pass_input.returnPressed.connect(self.handle_login) 
+        self.pass_input.setFixedHeight(45) # [BARU] Samakan tinggi
 
         login_btn = QPushButton("Login")
         login_btn.setFont(QFont("Segoe UI", 11, QFont.Bold))
         login_btn.clicked.connect(self.handle_login)
         login_btn.setObjectName("loginButton") 
+        login_btn.setFixedHeight(45) # [BARU] Samakan tinggi
 
         register_btn = QPushButton("Don't have an account? Register") 
         register_btn.setFont(QFont("Segoe UI", 10))
@@ -50,86 +65,78 @@ class LoginPage(QWidget):
         register_btn.setObjectName("registerButton") 
 
         layout.addWidget(title)
+        layout.addSpacing(15) # Spasi tambahan
         layout.addWidget(self.user_input)
         layout.addWidget(self.pass_input)
+        layout.addSpacing(10) # Spasi tambahan
         layout.addWidget(login_btn)
         layout.addWidget(register_btn)
 
     def apply_styles(self):
         """
-        Menerapkan styling QSS (Qt Style Sheets) tema BIRU TUA.
-        Ini HANYA mengubah tampilan (PySide6), BUKAN logika.
+        [REVISI TOTAL]
+        Menerapkan styling QSS tema Dashboard (Indigo + Emas).
         """
-        # Palet Warna (Biru Tua / Dark Blue)
-        BG_DARK_BLUE = "#2C3E50"      # Background utama (Biru Sangat Tua)
-        BG_MEDIUM_BLUE = "#34495E"    # Background input (Sedikit lebih terang)
-        TEXT_LIGHT = "#ECF0F1"        # Teks utama (Putih pudar)
-        BORDER_LIGHT = "#4A6572"      # Border input
-        PRIMARY_BLUE = "#3498DB"      # Tombol login (Biru Cerah)
-        PRIMARY_HOVER = "#2980B9"     # Hover tombol login
-        PRIMARY_PRESSED = "#2471A3"   # Press tombol login
-        SECONDARY_LINK = "#5DADE2"    # Tombol register (Link biru muda)
-        SECONDARY_HOVER = "#85C1E9"   # Hover link
-        
-        # Menggunakan f-string untuk memasukkan variabel warna ke QSS
         self.setStyleSheet(f"""
-            /* Gunakan nama class 'LoginPage' sebagai selector utama
-               agar 'background-color' diterapkan
-            */
             LoginPage {{
-                background-color: {BG_DARK_BLUE};
+                background-color: {self.COLOR_BACKGROUND};
             }}
             
             QLabel {{
-                color: {TEXT_LIGHT};
-                background-color: transparent; /* Pastikan label transparan */
+                color: {self.COLOR_TEXT};
+                background-color: transparent;
+            }}
+            
+            /* [BARU] Judul Emas */
+            QLabel#titleLabel {{
+                color: {self.COLOR_GOLD};
             }}
             
             QLineEdit {{
                 font-family: "Segoe UI";
-                font-size: 11pt;
-                padding: 10px;
-                background-color: {BG_MEDIUM_BLUE};
-                color: {TEXT_LIGHT};
-                border: 1px solid {BORDER_LIGHT};
-                border-radius: 5px;
+                font-size: 14px;
+                padding: 10px 20px;
+                background-color: {self.COLOR_CARD};
+                color: {self.COLOR_TEXT};
+                border: 2px solid {self.COLOR_GOLD};
+                border-radius: 22px; /* Radius besar seperti dashboard */
             }}
             QLineEdit:focus {{
-                border: 1px solid {SECONDARY_LINK}; /* Aksen biru muda saat di-klik */
+                border: 2px solid {self.COLOR_GOLD_HOVER};
             }}
             
-            /* Style untuk tombol Login Utama */
+            /* Style untuk tombol Login (Emas) */
             QPushButton#loginButton {{
-                background-color: {PRIMARY_BLUE};
-                color: white; /* Teks putih solid untuk kontras terbaik */
+                background-color: {self.COLOR_GOLD};
+                color: {self.COLOR_PANE_LEFT}; /* Teks gelap agar kontras */
                 padding: 10px;
                 border: none;
-                border-radius: 5px;
-                min-height: 25px;
+                border-radius: 22px; /* Radius besar */
+                font-weight: bold;
             }}
             QPushButton#loginButton:hover {{
-                background-color: {PRIMARY_HOVER};
+                background-color: {self.COLOR_GOLD_HOVER};
             }}
             QPushButton#loginButton:pressed {{
-                background-color: {PRIMARY_PRESSED};
+                background-color: {self.COLOR_GOLD_PRESSED};
             }}
             
-            /* Style untuk tombol Register (secondary) */
+            /* Style untuk tombol Register (Link) */
             QPushButton#registerButton {{
                 background-color: transparent;
-                color: {SECONDARY_LINK};
+                color: {self.COLOR_TEXT_SUBTLE};
                 font-size: 9pt;
                 border: none;
                 text-decoration: underline;
                 padding: 5px;
             }}
             QPushButton#registerButton:hover {{
-                color: {SECONDARY_HOVER};
+                color: {self.COLOR_TEXT};
             }}
         """)
 
     def handle_login(self):
-        # --- LOGIKA INI TIDAK DIUBAH SAMA SEKALI ---
+        # --- LOGIKA TIDAK DIUBAH ---
         username = self.user_input.text()
         password = self.pass_input.text()
         
