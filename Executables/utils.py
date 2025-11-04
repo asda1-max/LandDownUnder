@@ -209,44 +209,58 @@ class CryptoEngine:
             print(f"CryptoEngine Gagal Dekripsi: {e}")
             raise ValueError("Gagal mendekripsi data: Password salah atau data korup.")
 
-# --- [INSTRUKSI 2: FUNGSI HELPER WHITE-MIST] ---
-# (Tidak berubah)
-def encrypt_whitemist(data_bytes: bytes, key: str) -> str:
+# --- [INSTRUKSI 1: FUNGSI HELPER WHITE-MIST] ---
+def encrypt_whitemist(data_bytes: bytes, key: str, is_text: bool = False) -> str:
     """
-    Enkripsi bytes file menggunakan White-Mist.
-    Karena White-Mist mengenkripsi string, kita ubah bytes -> base64 -> encrypt.
+    Enkripsi bytes menggunakan White-Mist.
+    Jika is_text=True, data (vigenere) di-encode utf-8 dan dienkripsi.
+    Jika is_text=False (default, untuk file), data di-encode base64 dan dienkripsi.
     """
     if crossCross is None:
         raise ImportError("Modul WhiteMist tidak ditemukan. Tidak bisa enkripsi.")
         
-    # 1. Ubah bytes mentah menjadi string base64
-    data_base64_string = base64.b64encode(data_bytes).decode('utf-8')
+    string_to_encrypt = ""
+    if is_text:
+        # INSTRUKSI 1: Untuk Teks, langsung encode vigenere (bytes) -> utf-8
+        string_to_encrypt = data_bytes.decode('utf-8')
+    else:
+        # Default (File): Ubah bytes mentah menjadi string base64
+        string_to_encrypt = base64.b64encode(data_bytes).decode('utf-8')
     
-    # 2. Enkripsi string base64 menggunakan White-Mist
+    # Enkripsi string
     enkripsi = crossCross.state(key=key, salt="Kriptoasik", sugar="FunKripto")
-    encrypted_string = enkripsi.letsEncrypt(data_base64_string)
+    encrypted_string = enkripsi.letsEncrypt(string_to_encrypt)
     
     return encrypted_string
 
-def decrypt_whitemist(encrypted_string: str, key: str) -> bytes:
+def decrypt_whitemist(encrypted_string: str, key: str, is_text: bool = False) -> bytes:
     """
-    Dekripsi string White-Mist kembali menjadi bytes file.
-    decrypt -> base64 decode -> bytes.
+    Dekripsi string White-Mist kembali menjadi bytes.
+    Jika is_text=True, data didekripsi dan di-encode utf-8 (untuk vigenere).
+    Jika is_text=False (default, untuk file), data didekripsi dan di-decode base64.
     """
     if crossCross is None:
         raise ImportError("Modul WhiteMist tidak ditemukan. Tidak bisa dekripsi.")
         
     # 1. Dekripsi string White-Mist
     dekripsi = crossCross.deState(key=key, salt="Kriptoasik", sugar="FunKripto")
-    decrypted_base64_string = dekripsi.letsDecrypt(encrypted_string)
+    decrypted_string = dekripsi.letsDecrypt(encrypted_string)
     
-    # 2. Ubah kembali string base64 menjadi bytes
-    try:
-        decrypted_bytes = base64.b64decode(decrypted_base64_string.encode('utf-8'))
-        return decrypted_bytes
-    except Exception as e:
-        print(f"Error b64decode White-Mist: {e}")
-        raise ValueError("Gagal decode base64: Kunci salah atau data korup.")
+    # 2. Kembalikan ke bytes
+    if is_text:
+        # INSTRUKSI 1: Untuk Teks, string dekripsi (vigenere) -> utf-8 bytes
+        return decrypted_string.encode('utf-8')
+    else:
+        # Default (File): Ubah kembali string base64 menjadi bytes
+        try:
+            decrypted_bytes = base64.b64decode(decrypted_string.encode('utf-8'))
+            return decrypted_bytes
+        except Exception as e:
+            print(f"Error b64decode White-Mist: {e}")
+            # [PERBAIKAN] Jika gagal decode B64, mungkin ini adalah teks (instruksi 1)
+            # Kembalikan saja sebagai bytes utf-8
+            print("Gagal B64Decode, mencoba fallback ke UTF-8 (mungkin pesan teks lama)...")
+            return decrypted_string.encode('utf-8')
 
 
 # --- KONFIGURASI KUNCI USB ---

@@ -53,7 +53,7 @@ class MainWindow(QStackedWidget):
 
     def show_register(self):
         self.setCurrentWidget(self.register_page)
-        self.setFixedSize(1200, 360)
+        self.setFixedSize(1200, 800)
 
     def show_dashboard(self, username=""):
         if username:

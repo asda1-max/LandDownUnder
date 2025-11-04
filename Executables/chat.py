@@ -208,7 +208,10 @@ class ChatPage(QWidget):
         try:
             vigenere_encrypted_text = vigenere_encrypt(message_text, user_key)
             vigenere_encrypted_bytes = vigenere_encrypted_text.encode('utf-8')
-            whitemist_encrypted_string = encrypt_whitemist(vigenere_encrypted_bytes, user_key)
+            
+            # [INSTRUKSI 1] Kirim 'is_text=True' karena ini adalah pesan teks
+            whitemist_encrypted_string = encrypt_whitemist(vigenere_encrypted_bytes, user_key, is_text=True)
+            
             data_bytes_for_aes = whitemist_encrypted_string.encode('utf-8')
             encrypted_payload_bytes = self.session_crypto.encrypt(data_bytes_for_aes)
             metadata = { 
@@ -323,6 +326,7 @@ class ChatPage(QWidget):
                 temp_crypto = CryptoEngine(key); encrypted_payload_bytes = temp_crypto.encrypt(data_bytes)
                 metadata = { 'type': 'file', 'sender': self.current_user, 'recipient': self.recipient_username, 'data': None, 'encryption_method': 'aes', 'aes_key_debug': key, 'filename': filename }
             elif method == "White-Mist (Eksperimental)":
+                # [INSTRUKSI 1] Ini adalah file, JANGAN kirim 'is_text=True'. Default (False) akan digunakan (Base64).
                 encrypted_string = encrypt_whitemist(data_bytes, key); encrypted_payload_bytes = encrypted_string.encode('utf-8')
                 metadata = { 'type': 'file', 'sender': self.current_user, 'recipient': self.recipient_username, 'data': None, 'encryption_method': 'whitemist', 'aes_key_debug': key, 'filename': filename }
             else: return 
@@ -422,7 +426,8 @@ class ChatPage(QWidget):
                         whitemist_encrypted_string = decrypted_bytes_from_aes.decode('utf-8')
                         
                         try:
-                            vigenere_encrypted_bytes = decrypt_whitemist(whitemist_encrypted_string, key)
+                            # [INSTRUKSI 1] Kirim 'is_text=True' karena ini adalah pesan teks
+                            vigenere_encrypted_bytes = decrypt_whitemist(whitemist_encrypted_string, key, is_text=True)
                             vigenere_encrypted_text = vigenere_encrypted_bytes.decode('utf-8')
                         except Exception as e_whitemist:
                             # [REQUEST #3] Gagal WhiteMist, siapkan output "gajo"
@@ -467,7 +472,9 @@ class ChatPage(QWidget):
                     temp_crypto = CryptoEngine(key); decrypted_bytes = temp_crypto.decrypt(encrypted_bytes)
                 elif method == 'whitemist':
                     self.add_message_to_display("error", metadata=None, error_text=f"--- Mendekripsi (White-Mist)... ---")
-                    encrypted_string = encrypted_bytes.decode('utf-8'); decrypted_bytes = decrypt_whitemist(encrypted_string, key)
+                    encrypted_string = encrypted_bytes.decode('utf-8'); 
+                    # [INSTRUKSI 1] Ini adalah file, JANGAN kirim 'is_text=True'. Default (False) akan digunakan (Base64).
+                    decrypted_bytes = decrypt_whitemist(encrypted_string, key)
                 else: raise ValueError(f"Metode enkripsi '{method}' tidak dikenal.")
                 
                 decrypted_path = os.path.join(self.temp_decrypted_dir, f"DECRYPTED_{filename}")
