@@ -16,7 +16,7 @@ from cryptography.hazmat.backends import default_backend
 # --- [BARU] Impor White-Mist ---
 # (Asumsi file WhiteMist.py ada di direktori yang sama)
 try:
-    from WhiteMist import crossCross
+    import crossCross
 except ImportError:
     print("PERINGATAN: Modul WhiteMist tidak ditemukan. Fitur enkripsi White-Mist tidak akan berfungsi.")
     crossCross = None # Hindari crash jika file tidak ada
@@ -57,7 +57,7 @@ def verify_password(stored_salt_hex, stored_hash_hex, password_to_check):
         return False
 
 # --- [ LOGIKA API KLIEN ] ---
-API_BASE_URL = "https://sorasaki.azeroth.site/" 
+API_BASE_URL = "https://morsz.azeroth.site/" 
 
 # --- MANAJEMEN USER (Tidak berubah) ---
 class UserManager:
