@@ -212,26 +212,43 @@ class GroupChatPage(QWidget):
         self.back_callback()
 
     def handle_invite_user(self):
-        username, ok = QInputDialog.getText(self, "Invite User", "Masukkan username untuk diundang:")
-        if ok and username:
-            system_msg = f"--- INFO: {self.current_user} mengundang {username} ke grup ---"
-            try:
-                data_bytes = system_msg.encode('utf-8')
-                encrypted_payload = self.session_crypto.encrypt(data_bytes)
-                
-                metadata = {
-                    'type': 'text',
-                    'sender': 'SYSTEM',
-                    'recipient': self.chat_id, 
-                    'data': encrypted_payload.decode('utf-8'),
-                    'is_system_msg': True,
-                    'db_timestamp': datetime.now(timezone.utc).astimezone().isoformat()
-                }
-                self.message_manager.save_message(self.chat_id, metadata)
-                QMessageBox.information(self, "Sukses", f"Undangan dikirim ke {username} (simulasi).")
-                self.refresh_chat_display()
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Gagal invite: {e}")
+            username, ok = QInputDialog.getText(self, "Invite User", "Masukkan username untuk diundang:")
+            if ok and username:
+                # [LOGIKA BARU] Panggil API invite
+                try:
+                    payload = {
+                        "group_name": self.group_name,
+                        "requester": self.current_user,
+                        "target_user": username
+                    }
+                    
+                    # Kirim request ke API
+                    response = requests.post(f"{self.api_url}/invite_user", json=payload, timeout=10)
+                    resp_json = response.json()
+                    
+                    if response.status_code == 200:
+                        QMessageBox.information(self, "Sukses", f"{username} berhasil diundang!")
+                        
+                        # Opsional: Kirim pesan sistem agar semua member tahu (hanya kosmetik chat)
+                        system_msg = f"--- INFO: {self.current_user} mengundang {username} ke grup ---"
+                        data_bytes = system_msg.encode('utf-8')
+                        encrypted_payload = self.session_crypto.encrypt(data_bytes)
+                        metadata = {
+                            'type': 'text', 'sender': 'SYSTEM', 'recipient': self.chat_id, 
+                            'data': encrypted_payload.decode('utf-8'), 'is_system_msg': True,
+                            'db_timestamp': datetime.now(timezone.utc).astimezone().isoformat()
+                        }
+                        self.message_manager.save_message(self.chat_id, metadata)
+                        self.refresh_chat_display()
+                    else:
+                        # Tampilkan error dari server (misal: "Hanya pembuat grup...")
+                        err_msg = resp_json.get("message", "Gagal mengundang.")
+                        QMessageBox.warning(self, "Gagal Invite", err_msg)
+                        
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Gagal menghubungi server: {e}")
+
+        # ... (Sisa method refresh_chat_display, dll TETAP SAMA seperti sebelumnya) ...
 
     def refresh_chat_display(self):
         all_messages = self.message_manager.load_messages(self.chat_id)
