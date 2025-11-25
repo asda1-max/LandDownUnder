@@ -10,13 +10,13 @@ from loginpage import LoginPage
 from registerpage import RegisterPage
 from dashboard import DashboardPage
 from chat import ChatPage
+from groupchat import GroupChatPage # [BARU] Import GroupChat
 
 # ====== Import Logika (Utils) ======
 from utils import UserManager, MessageManager
 
 # ====== Import Autentikasi USB ======
 from usb_auth import get_all_valid_keys, check_usb_key, monitor_usb_drive, LOCAL_CONFIG_FILE
-
 
 class MainWindow(QStackedWidget):
     def __init__(self):
@@ -30,12 +30,16 @@ class MainWindow(QStackedWidget):
         # Halaman-halaman utama
         self.login_page = LoginPage(self.show_dashboard, self.show_register, self.user_manager)
         self.register_page = RegisterPage(self.show_login, self.user_manager)
+        
+        # [UPDATE] Menambahkan callback show_group_chat ke Dashboard
         self.dashboard_page = DashboardPage(
             logout_callback=self.show_login, 
             switch_to_chat=self.show_chat, 
+            switch_to_group=self.show_group_chat,
             user_manager=self.user_manager
         )
         self.chat_page = None
+        self.group_chat_page = None # [BARU] Variabel untuk halaman grup
 
         # Tambahkan ke QStackedWidget
         self.addWidget(self.login_page)
@@ -93,6 +97,27 @@ class MainWindow(QStackedWidget):
         self.setCurrentWidget(self.chat_page)
         self.setFixedSize(1200, 800)
 
+    # [BARU] Fungsi Navigasi ke Group Chat
+    def show_group_chat(self, group_name, shared_password):
+        if not self.current_user:
+            self.show_login(); return
+
+        if self.group_chat_page:
+            self.removeWidget(self.group_chat_page)
+            self.group_chat_page.deleteLater()
+
+        self.group_chat_page = GroupChatPage(
+            current_user=self.current_user,
+            group_name=group_name,
+            shared_password=shared_password,
+            message_manager=self.message_manager,
+            back_callback=self.show_dashboard
+        )
+        
+        self.addWidget(self.group_chat_page)
+        self.setCurrentWidget(self.group_chat_page)
+        self.setFixedSize(1200, 800)
+
 
 # ========== PROGRAM UTAMA ==========
 if __name__ == "__main__":
@@ -102,7 +127,7 @@ if __name__ == "__main__":
 
     valid_keys = get_all_valid_keys()
 
-    if not valid_keys:  # Cek jika list-nya kosong
+    if not valid_keys: 
         messagebox.showerror(
             "Setup Error",
             f"File '{LOCAL_CONFIG_FILE}' tidak ditemukan atau tidak ada USB yang terdaftar.\n"
@@ -111,12 +136,10 @@ if __name__ == "__main__":
         sys.exit()
 
     while True:
-        # check_usb_key sekarang menerima list 'valid_keys'
         if check_usb_key(valid_keys):
             print("✅ USB Authentication successful.")
             break
         else:
-            # Ubah pesan untuk mencerminkan multi-key
             should_retry = messagebox.askretrycancel(
                 "USB Key Not Found",
                 "Masukkan SALAH SATU USB key yang terdaftar lalu klik Retry."
@@ -146,16 +169,13 @@ if __name__ == "__main__":
     palette.setColor(QPalette.HighlightedText, QColor("white"))
     app.setPalette(palette)
 
-    # Buat dan tampilkan window utama
     window = MainWindow()
     window.show()
 
     # --- 3️⃣ Jalankan thread untuk memantau USB selama app berjalan ---
     monitor_thread = threading.Thread(
         target=monitor_usb_drive,
-        # --- PERUBAHAN DI SINI ---
-        args=(app, valid_keys),  # Kirim list 'valid_keys'
-        # --- SELESAI PERUBAHAN ---
+        args=(app, valid_keys), 
         daemon=True
     )
     monitor_thread.start()

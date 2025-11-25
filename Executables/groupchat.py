@@ -21,7 +21,7 @@ from utils import CryptoEngine, vigenere_encrypt, vigenere_decrypt, encrypt_whit
 
 class GroupChatPage(QWidget):
     
-    # --- Palet Warna (Sama seperti chat.py) ---
+    # --- Palet Warna (Konsisten dengan chat.py) ---
     COLOR_BACKGROUND = "#1A1B2E"
     COLOR_PANE_LEFT = "#272540" 
     COLOR_PANE_RIGHT = "#1A1B2E"
@@ -37,17 +37,17 @@ class GroupChatPage(QWidget):
     COLOR_RED_HOVER = "#ff7d6e"
     COLOR_RED_PRESSED = "#e63946"
     COLOR_BUBBLE_SENT = "#3C506E" 
-    COLOR_BUBBLE_RECV = "#3E3C6E" # Warna bubble orang lain
+    COLOR_BUBBLE_RECV = "#3E3C6E" 
     # -------------------
 
     def __init__(self, current_user, group_name, shared_password, message_manager, back_callback):
         super().__init__()
         self.current_user = current_user
-        self.group_name = group_name # Menggantikan recipient_username
+        self.group_name = group_name 
         self.message_manager = message_manager
         self.back_callback = back_callback
         
-        # ID Chat untuk grup biasanya nama grup itu sendiri atau hash dari nama grup
+        # ID Chat untuk grup
         self.chat_id = f"GROUP_{self.group_name}"
         self.session_crypto = CryptoEngine(shared_password)
         
@@ -59,9 +59,17 @@ class GroupChatPage(QWidget):
         base_project_dir = os.path.dirname(script_dir)
 
         self.base_data_dir = os.path.join(base_project_dir, "local_data")
-        self.cache_dir = os.path.join(self.base_data_dir, "group_caches") # Cache khusus grup
-        self.cache_file = os.path.join(self.cache_dir, f"cache_{self.chat_id}.json")
+        
+        # --- [FIX CACHE PER USER] ---
+        # Kita pisahkan cache berdasarkan USERNAME + GROUP_ID
+        # Agar Sender dan Receiver di PC yang sama tidak rebutan file cache
+        self.cache_dir = os.path.join(self.base_data_dir, "group_caches") 
+        
+        # Nama file sekarang menyertakan current_user
+        # Contoh: cache_Rakha_GROUP_DevTeam.json
+        self.cache_file = os.path.join(self.cache_dir, f"cache_{self.current_user}_{self.chat_id}.json")
         self.message_cache = self.load_cache()
+        # ----------------------------
         
         self.temp_stegano_dir = os.path.join(self.base_data_dir, "temp_stegano")
         self.temp_download_dir = os.path.join(self.base_data_dir, "temp_downloads")
@@ -90,6 +98,7 @@ class GroupChatPage(QWidget):
         return None
 
     def load_cache(self):
+        # Membuka file cache milik USER INI saja
         if not os.path.exists(self.cache_file): return {}
         try:
             with open(self.cache_file, 'r', encoding='utf-8') as f:
@@ -97,6 +106,7 @@ class GroupChatPage(QWidget):
         except (json.JSONDecodeError, IOError): return {} 
 
     def save_to_cache(self, message_id, data_to_cache):
+        # Menyimpan ke file cache milik USER INI saja
         if not message_id: return
         self.message_cache[message_id] = data_to_cache
         try:
@@ -121,13 +131,11 @@ class GroupChatPage(QWidget):
         back_btn.clicked.connect(self.handle_back_pressed)
         back_btn.setFixedWidth(80)
         
-        # Judul Grup
         title = QLabel(f"👥 Group: {self.group_name}")
         title.setFont(QFont("Segoe UI", 16, QFont.Bold))
         title.setStyleSheet(f"color: {self.COLOR_GOLD};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # [INSTRUKSI 1] Tombol Invite
         invite_btn = QPushButton("Invite +")
         invite_btn.setToolTip("Undang orang ke grup")
         invite_btn.setStyleSheet(self.button_style(
@@ -203,15 +211,10 @@ class GroupChatPage(QWidget):
             self.poll_timer.stop()
         self.back_callback()
 
-    # [INSTRUKSI 1] Fitur Invite
     def handle_invite_user(self):
         username, ok = QInputDialog.getText(self, "Invite User", "Masukkan username untuk diundang:")
         if ok and username:
-            # Mengirim pesan sistem ke grup sebagai notifikasi invite
             system_msg = f"--- INFO: {self.current_user} mengundang {username} ke grup ---"
-            
-            # Kita enkripsi pesan sistem ini agar aman
-            # Menggunakan AES Sesi grup saja (tanpa vigenere user/whitemist yg rumit untuk notif)
             try:
                 data_bytes = system_msg.encode('utf-8')
                 encrypted_payload = self.session_crypto.encrypt(data_bytes)
@@ -219,7 +222,7 @@ class GroupChatPage(QWidget):
                 metadata = {
                     'type': 'text',
                     'sender': 'SYSTEM',
-                    'recipient': self.chat_id, # Targetnya adalah Grup ID
+                    'recipient': self.chat_id, 
                     'data': encrypted_payload.decode('utf-8'),
                     'is_system_msg': True,
                     'db_timestamp': datetime.now(timezone.utc).astimezone().isoformat()
@@ -238,8 +241,9 @@ class GroupChatPage(QWidget):
             msg_id = self.get_message_id(msg_data)
             
             if msg_id and msg_id not in self.rendered_message_ids:
-                # Logika Align: Kanan jika saya pengirim, Kiri jika orang lain
                 align = "sent" if msg_data['sender'] == self.current_user else "received"
+                
+                # Load dari cache spesifik user
                 cached_data = self.message_cache.get(msg_id)
                 
                 self.add_message_to_display(align, msg_data, cached_data)
@@ -255,8 +259,6 @@ class GroupChatPage(QWidget):
         message_text = self.message_input.text() 
         if not message_text: return
         
-        # Di Group chat, kita bisa menggunakan shared key grup untuk Vigenere juga
-        # Atau meminta input kunci lagi. Untuk konsistensi dengan chat.py, kita minta input.
         user_key, ok = QInputDialog.getText(self, "Kunci Pesan Grup", "Masukkan Kunci Enkripsi Pesan:")
         if not (ok and user_key): return 
         
@@ -272,20 +274,22 @@ class GroupChatPage(QWidget):
             metadata = { 
                 'type': 'text', 
                 'sender': self.current_user, 
-                'recipient': self.chat_id, # Recipient adalah ID Grup
+                'recipient': self.chat_id, 
                 'data': encrypted_payload_bytes.decode('utf-8'), 
                 'vigenere_key_debug': user_key,
                 'db_timestamp': datetime.now(timezone.utc).astimezone().isoformat()
             }
             self.message_manager.save_message(self.chat_id, metadata)
+            
+            # PENTING: Simpan ke cache user sendiri
             message_id = self.get_message_id(metadata)
             self.save_to_cache(message_id, message_text)
+            
             self.refresh_chat_display()
             
         except Exception as e: 
             self.add_message_to_display("error", metadata=None, error_text=f"Error: {e}")
 
-    # --- Stegano & File logic sama dengan Chat.py, disesuaikan sedikit untuk Grup ---
     def handle_attach_image_stegano(self):
         message_to_hide = self.message_input.text()
         if not message_to_hide:
@@ -312,7 +316,6 @@ class GroupChatPage(QWidget):
             
             self.add_message_to_display("error", metadata=None, error_text=f"--- Mengunggah {base_filename}... ---")
             
-            # Gunakan chat_id grup untuk folder upload
             with open(temp_filename, "rb") as f:
                 files = {'file': (base_filename, f, 'image/png')}
                 upload_url = f"{self.api_url}/upload_file/{self.chat_id}"
@@ -329,7 +332,6 @@ class GroupChatPage(QWidget):
             }
             self.message_manager.save_message(self.chat_id, metadata)
             
-            # Cache
             message_id = self.get_message_id(metadata)
             cached_stego_path = os.path.join(self.temp_stegano_dir, file_id)
             import shutil
@@ -345,7 +347,6 @@ class GroupChatPage(QWidget):
             self.add_message_to_display("error", metadata=None, error_text=f"Error Stegano: {e}")
 
     def handle_attach_file(self):
-        # Logika file sama, hanya recipient = self.chat_id
         file_path, _ = QFileDialog.getOpenFileName(self, "Pilih File", "", "All Files (*.*)")
         if not file_path: return
         
@@ -379,13 +380,26 @@ class GroupChatPage(QWidget):
         except Exception as e: 
              self.add_message_to_display("error", metadata=None, error_text=f"Error Upload: {e}")
 
+    def show_loading_dialog(self, filename):
+        dialog = QDialog(self)
+        dialog.setModal(True)
+        dialog.setWindowTitle("Mengunduh...")
+        dialog.setStyleSheet(f"background-color: {self.COLOR_BACKGROUND}; color: {self.COLOR_TEXT}; font-size: 14px;")
+        layout = QVBoxLayout()
+        label = QLabel(f"Sedang mengunduh file:\n{filename}\n\nHarap tunggu...")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+        dialog.setLayout(layout)
+        dialog.setFixedSize(300, 150)
+        dialog.show()
+        QApplication.processEvents() 
+        return dialog
+
     def on_chat_item_clicked(self, item):
-        # Logika dekripsi sama persis dengan chat.py, 
-        # kecuali pengecekan sender untuk align bubble
         metadata = item.data(Qt.UserRole)
         if not metadata: return
         
-        # Handle System Message (Invite Info)
+        # Handle System Message
         if metadata.get('is_system_msg'):
             try:
                 encrypted_data = metadata.get('data').encode('utf-8')
@@ -395,152 +409,315 @@ class GroupChatPage(QWidget):
                 QMessageBox.information(self, "Info Sistem", "Pesan sistem tidak dapat didekripsi.")
             return
 
-        # Panggil logic dekripsi (copy paste dari chat.py logic)
-        self.decrypt_content(item, metadata)
-
-    def decrypt_content(self, item, metadata):
-        # ... (Logika dekripsi sama dengan chat.py, disederhanakan disini untuk hemat tempat 
-        # tapi fungsinya harus ada. Saya akan menggunakan struktur yg sama) ...
         msg_type = metadata.get('type')
         file_id = metadata.get('file_id')
         
-        if msg_type == 'text':
-             message_id = self.get_message_id(metadata)
-             encrypted_data_b64 = metadata.get('data')
-             if not encrypted_data_b64: return
-             key, ok = QInputDialog.getText(self, "Dekripsi", "Masukkan Kunci Pesan:")
-             if ok and key:
-                try:
-                    decrypted_bytes_from_aes = self.session_crypto.decrypt(encrypted_data_b64.encode('utf-8'))
-                    whitemist_encrypted_string = decrypted_bytes_from_aes.decode('utf-8')
+        try:
+            if msg_type == 'text':
+                message_id = self.get_message_id(metadata)
+                encrypted_data_b64 = metadata.get('data')
+                
+                # Jika tidak ada data, abaikan
+                if not encrypted_data_b64: return
+                
+                # Input kunci untuk dekripsi
+                key, ok = QInputDialog.getText(self, "Dekripsi Teks", "Masukkan Kunci (White-Mist + Vigenere):")
+                if ok and key:
                     try:
-                        vigenere_encrypted_bytes = decrypt_whitemist(whitemist_encrypted_string, key, is_text=True)
-                        vigenere_encrypted_text = vigenere_encrypted_bytes.decode('utf-8')
+                        decrypted_bytes_from_aes = self.session_crypto.decrypt(encrypted_data_b64.encode('utf-8'))
+                        whitemist_encrypted_string = decrypted_bytes_from_aes.decode('utf-8')
+                        try:
+                            vigenere_encrypted_bytes = decrypt_whitemist(whitemist_encrypted_string, key, is_text=True)
+                            vigenere_encrypted_text = vigenere_encrypted_bytes.decode('utf-8')
+                        except:
+                            vigenere_encrypted_text = whitemist_encrypted_string 
+                        decrypted_text = vigenere_decrypt(vigenere_encrypted_text, key)
+                        
+                        if message_id: self.save_to_cache(message_id, decrypted_text)
+                        
+                        # Update UI dengan teks yang sudah didekripsi
+                        new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, decrypted_text, item)
+                        new_widget.layout().activate(); new_widget.adjustSize()
+                        real_size = new_widget.size(); real_size.setHeight(real_size.height() + 10)
+                        item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
+                        
+                    except Exception as e:
+                        QMessageBox.warning(self, "Gagal", f"Dekripsi gagal: {e}")
+
+            elif msg_type == 'stegano' and file_id:
+                filename = metadata.get('filename', f"{file_id}.png")
+                local_stegano_path = os.path.join(self.temp_stegano_dir, file_id) 
+                
+                if not os.path.exists(local_stegano_path):
+                    loading_dialog = self.show_loading_dialog(filename)
+                    download_url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
+                    try:
+                        response = requests.get(download_url, timeout=60)
+                        loading_dialog.close() 
+                        if response.status_code != 200: raise Exception("Gagal unduh gambar.")
+                        with open(local_stegano_path, "wb") as f: f.write(response.content)
                     except:
-                        vigenere_encrypted_text = whitemist_encrypted_string 
-                    decrypted_text = vigenere_decrypt(vigenere_encrypted_text, key)
-                    
-                    if message_id: self.save_to_cache(message_id, decrypted_text)
-                    self.update_bubble_content(item, metadata, decrypted_text)
-                except Exception as e: QMessageBox.warning(self, "Gagal", f"Dekripsi gagal: {e}")
-        
-        elif msg_type == 'stegano' and file_id:
-             # Logic sama dengan Chat.py
-             local_path = os.path.join(self.temp_stegano_dir, file_id)
-             if not os.path.exists(local_path):
-                 # Download logic...
-                 url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
-                 r = requests.get(url); 
-                 with open(local_path, "wb") as f: f.write(r.content)
-             
-             # Show & Decrypt Dialog...
-             msg_box = QMessageBox(self); msg_box.setText("Dekripsi Gambar?")
-             msg_box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-             if msg_box.exec() == QMessageBox.Ok:
-                 key, ok = QInputDialog.getText(self, "Kunci", "Kunci Stegano:")
-                 if ok and key:
-                     try:
-                         raw = lsb.reveal(local_path)
-                         if "|||END_MORSZ|||" in raw: raw = raw.split("|||END_MORSZ|||")[0]
-                         if raw.startswith("<LEN:"): raw = raw[16:16+int(raw[5:15])]
-                         try: ct = base64.b64decode(raw).decode('utf-8')
-                         except: ct = raw
-                         pt = vigenere_decrypt(ct, key)
-                         
-                         QMessageBox.information(self, "Pesan", pt)
-                         message_id = self.get_message_id(metadata)
-                         if message_id: self.save_to_cache(message_id, {"text": pt, "image_path": local_path})
-                         self.update_bubble_content(item, metadata, {"text": pt, "image_path": local_path})
-                     except Exception as e: QMessageBox.warning(self, "Error", str(e))
+                        loading_dialog.close(); raise
 
-        elif msg_type == 'file' and file_id:
-             # Logic sama dengan Chat.py
-             local_path = os.path.join(self.temp_download_dir, file_id)
-             if not os.path.exists(local_path):
-                 url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
-                 r = requests.get(url)
-                 with open(local_path, "wb") as f: f.write(r.content)
-             
-             key, ok = QInputDialog.getText(self, "Dekripsi File", "Kunci File:", QLineEdit.Password)
-             if ok and key:
-                 try:
-                     with open(local_path, "rb") as f: enc_data = f.read()
-                     method = metadata.get('encryption_method')
-                     if method == 'aes': dec_data = CryptoEngine(key).decrypt(enc_data)
-                     else: dec_data = decrypt_whitemist(enc_data.decode('utf-8'), key)
-                     
-                     save_path = os.path.join(self.temp_decrypted_dir, f"DEC_{metadata.get('filename')}")
-                     with open(save_path, "wb") as f: f.write(dec_data)
-                     QMessageBox.information(self, "Sukses", f"File disimpan di:\n{save_path}")
-                 except Exception as e: QMessageBox.warning(self, "Gagal", str(e))
+                # Dialog Preview & Dekripsi
+                msg_box = QMessageBox(self); msg_box.setWindowTitle("Pesan Gambar")
+                pixmap = QPixmap(local_stegano_path).scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                msg_box.setIconPixmap(pixmap)
+                msg_box.setText("Gambar Steganografi diterima.")
+                decrypt_button = msg_box.addButton("Dekripsi Pesan", QMessageBox.AcceptRole)
+                msg_box.addButton(QMessageBox.Close); msg_box.exec()
+                
+                if msg_box.clickedButton() == decrypt_button:
+                    key, ok = QInputDialog.getText(self, "Dekripsi", "Masukkan Kunci VIGENERE:")
+                    if ok and key:
+                        try:
+                            raw_revealed = lsb.reveal(local_stegano_path)
+                            if not raw_revealed: raise ValueError("Gambar kosong/bukan stegano.")
+                            
+                            clean_payload = raw_revealed
+                            if raw_revealed.startswith("<LEN:") and len(raw_revealed) >= 16:
+                                len_str = raw_revealed[5:15]
+                                expected_len = int(len_str)
+                                clean_payload = raw_revealed[16:16 + expected_len]
+                            elif "|||END_MORSZ|||" in raw_revealed:
+                                clean_payload = raw_revealed.split("|||END_MORSZ|||")[0]
+                            
+                            try: vigenere_ciphertext = base64.b64decode(clean_payload).decode('utf-8')
+                            except: vigenere_ciphertext = clean_payload
 
-    def update_bubble_content(self, item, metadata, content):
-        align = "sent" if metadata['sender'] == self.current_user else "received"
-        new_widget = self.create_chat_bubble(align, metadata, content, item)
-        new_widget.layout().activate(); new_widget.adjustSize()
-        real_size = new_widget.size(); real_size.setHeight(real_size.height() + 10)
-        item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
+                            decrypted_message = vigenere_decrypt(vigenere_ciphertext, key)
+                            
+                            # Cache & Update
+                            message_id = self.get_message_id(metadata)
+                            cache_data = {"text": decrypted_message, "image_path": local_stegano_path}
+                            if message_id: self.save_to_cache(message_id, cache_data)
+                            
+                            # Result Dialog
+                            result_dialog = QDialog(self); result_dialog.setWindowTitle("Pesan Tersembunyi")
+                            result_dialog.resize(500, 400)
+                            res_layout = QVBoxLayout(result_dialog)
+                            
+                            info_lbl = QLabel("Isi Pesan (Decrypted):")
+                            info_lbl.setStyleSheet(f"color: {self.COLOR_GOLD}; font-weight: bold;")
+                            res_layout.addWidget(info_lbl)
+                            
+                            text_area = QTextEdit(); text_area.setPlainText(decrypted_message); text_area.setReadOnly(True)
+                            text_area.setStyleSheet(f"background-color: {self.COLOR_PANE_LEFT}; color: {self.COLOR_TEXT}; border: 1px solid {self.COLOR_GOLD};")
+                            res_layout.addWidget(text_area)
+                            
+                            close_btn = QPushButton("Tutup"); close_btn.clicked.connect(result_dialog.accept)
+                            close_btn.setStyleSheet(self.button_style(base=self.COLOR_RED, hover=self.COLOR_RED_HOVER, pressed=self.COLOR_RED_PRESSED))
+                            res_layout.addWidget(close_btn)
+                            result_dialog.exec()
+                            
+                            # Update UI
+                            new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, cache_data, item)
+                            new_widget.layout().activate(); new_widget.adjustSize()
+                            real_size = new_widget.size(); real_size.setHeight(real_size.height() + 10)
+                            item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
+                            
+                        except Exception as e:
+                            QMessageBox.critical(self, "Gagal Dekripsi", f"Error: {e}")
 
+            elif msg_type == 'file' and file_id:
+                local_path = os.path.join(self.temp_download_dir, file_id)
+                filename = metadata.get('filename', 'file.enc')
+                
+                if not os.path.exists(local_path):
+                    loading_dialog = self.show_loading_dialog(filename)
+                    download_url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
+                    response = requests.get(download_url, timeout=60)
+                    loading_dialog.close() 
+                    if response.status_code != 200: raise Exception("Gagal unduh file.")
+                    with open(local_path, "wb") as f: f.write(response.content)
+                
+                key, ok = QInputDialog.getText(self, "Dekripsi File", "Masukkan Kunci:", QLineEdit.Password)
+                if not (ok and key): return
+                
+                with open(local_path, "rb") as f: encrypted_bytes = f.read()
+                decrypted_bytes = None; method = metadata.get('encryption_method', 'aes')
+                
+                if method == 'aes':
+                    temp_crypto = CryptoEngine(key); decrypted_bytes = temp_crypto.decrypt(encrypted_bytes)
+                elif method == 'whitemist':
+                    encrypted_string = encrypted_bytes.decode('utf-8'); 
+                    decrypted_bytes = decrypt_whitemist(encrypted_string, key)
+                
+                decrypted_path = os.path.join(self.temp_decrypted_dir, f"DECRYPTED_{filename}")
+                with open(decrypted_path, "wb") as f: f.write(decrypted_bytes)
+                QMessageBox.information(self, "Sukses", f"File disimpan di:\n{decrypted_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Terjadi error: {e}")
+
+    # --- CREATE CHAT BUBBLE (Konsisten) ---
     def create_chat_bubble(self, align, metadata, cached_data=None, item=None):
-        # Bubble creation logic (mirip chat.py)
         bubble_container = QWidget()
-        container_layout = QHBoxLayout(bubble_container); container_layout.setContentsMargins(5,5,5,5)
-        
-        bubble_frame = QFrame()
-        bubble_frame.setMinimumWidth(200); bubble_frame.setMaximumWidth(450)
-        content_layout = QVBoxLayout(bubble_frame)
-        
-        sender_name = "YOU" if align == "sent" else metadata.get('sender', 'Unknown')
-        lbl_name = QLabel(sender_name); lbl_name.setStyleSheet(f"color: {self.COLOR_GOLD}; font-weight: bold;")
-        content_layout.addWidget(lbl_name)
-        
-        msg_type = metadata.get('type')
-        if msg_type == 'text':
-            txt = cached_data if isinstance(cached_data, str) else "🔒 [Pesan Terenkripsi]"
-            lbl_msg = QLabel(txt); lbl_msg.setWordWrap(True); lbl_msg.setStyleSheet(f"color: {self.COLOR_TEXT};")
-            content_layout.addWidget(lbl_msg)
-        elif msg_type == 'stegano':
-            lbl_msg = QLabel("🖼️ Gambar Stegano"); lbl_msg.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-style: italic;")
-            content_layout.addWidget(lbl_msg)
-            if isinstance(cached_data, dict):
-                 lbl_hidden = QLabel(f"Isi: {cached_data.get('text')}"); lbl_hidden.setStyleSheet(f"color: {self.COLOR_TEXT};")
-                 content_layout.addWidget(lbl_hidden)
-        elif msg_type == 'file':
-            lbl_msg = QLabel(f"📂 File: {metadata.get('filename')}"); lbl_msg.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE};")
-            content_layout.addWidget(lbl_msg)
+        container_layout = QHBoxLayout(bubble_container)
+        container_layout.setContentsMargins(5, 5, 5, 5)
+        container_layout.setSpacing(0)
 
-        # Timestamp & Refresh
-        row_btm = QHBoxLayout()
-        ts = metadata.get('db_timestamp', '')[11:16]
-        lbl_time = QLabel(ts); lbl_time.setStyleSheet("color: gray; font-size: 10px;")
-        btn_ref = QPushButton("🔄"); btn_ref.setFixedSize(20,20); btn_ref.setStyleSheet("background: transparent; color: white;")
-        if item: btn_ref.clicked.connect(lambda: self.on_chat_item_clicked(item))
-        row_btm.addWidget(lbl_time); row_btm.addStretch(); row_btm.addWidget(btn_ref)
-        content_layout.addLayout(row_btm)
+        bubble_frame = QFrame()
+        bubble_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        bubble_frame.setFrameShadow(QFrame.Shadow.Plain)
+        bubble_frame.setLineWidth(0)
         
+        bubble_frame.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        bubble_frame.setMinimumWidth(self.width() * 0.3)
+        bubble_frame.setMaximumWidth(self.width() * 0.7)
+
+        bubble_content_layout = QVBoxLayout(bubble_frame)
+        bubble_content_layout.setContentsMargins(12, 10, 12, 8)
+        bubble_content_layout.setSpacing(8)
+        
+        msg_type = metadata.get('type', 'unknown')
+        content_max_width = (self.width() * 0.7) - 24
+        
+        # --- Bagian Nama Pengirim ---
         if align == "sent":
-            bubble_frame.setStyleSheet(f"background-color: {self.COLOR_BUBBLE_SENT}; border-radius: 10px; border-bottom-right-radius: 0;")
-            container_layout.addStretch(); container_layout.addWidget(bubble_frame)
-        else:
-            bubble_frame.setStyleSheet(f"background-color: {self.COLOR_BUBBLE_RECV}; border-radius: 10px; border-bottom-left-radius: 0;")
-            container_layout.addWidget(bubble_frame); container_layout.addStretch()
+            name_label = QLabel("YOU")
+            name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
+            bubble_content_layout.addWidget(name_label)
+        elif align == "received":
+            prefix = metadata.get('sender', 'Unknown')
+            name_label = QLabel(prefix)
+            name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
+            bubble_content_layout.addWidget(name_label)
+        
+        # --- Bagian Konten Pesan ---
+        if msg_type == 'text':
+            # Jika ada cached_data, tampilkan. Jika tidak, placeholder.
+            display_text = cached_data if cached_data else "[Pesan Teks Super-Terenkripsi]"
+            content_label = QLabel(display_text)
+            content_label.setWordWrap(True)
+            content_label.setMaximumWidth(content_max_width)
+            content_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px;")
+            content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            content_label.setMinimumHeight(30)
+            bubble_content_layout.addWidget(content_label)
+
+        elif msg_type == 'stegano':
+            filename = metadata.get('filename', 'unknown.png')
+            if cached_data and isinstance(cached_data, dict):
+                secret_text = cached_data.get('text', '[ERROR CACHE]')
+                image_path = cached_data.get('image_path')
+                
+                # --- THUMBNAIL LOGIC ---
+                if image_path and os.path.exists(image_path):
+                    pixmap = QPixmap(image_path).scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    img_label = QLabel()
+                    img_label.setPixmap(pixmap)
+                    img_label.setMinimumSize(200, 150)
+                    bubble_content_layout.addWidget(img_label)
+                else:
+                    stegano_label = QLabel(f"🖼️ Stegano: {filename}")
+                    stegano_label.setMaximumWidth(content_max_width)
+                    stegano_label.setWordWrap(True)
+                    bubble_content_layout.addWidget(stegano_label)
+                
+                text_label = QLabel(f"Pesan: {secret_text}")
+                text_label.setWordWrap(True)
+                text_label.setMaximumWidth(content_max_width)
+                text_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px; font-style: italic;")
+                text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                text_label.setMinimumHeight(30)
+                bubble_content_layout.addWidget(text_label)
+            else:
+                # Jika belum didekripsi (tidak ada cache)
+                content_label = QLabel(f"🖼️ Stegano Image (Encrypted)")
+                content_label.setWordWrap(True)
+                content_label.setMaximumWidth(content_max_width)
+                content_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; font-style: italic;")
+                content_label.setMinimumHeight(30)
+                bubble_content_layout.addWidget(content_label)
+
+        elif msg_type == 'file':
+            filename = metadata.get('filename', 'unknown_file')
+            content_label = QLabel(f"📂 File: {filename}")
+            content_label.setWordWrap(True)
+            content_label.setMaximumWidth(content_max_width)
+            content_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; font-style: italic;")
+            content_label.setMinimumHeight(30)
+            bubble_content_layout.addWidget(content_label)
+        
+        # --- Timestamp & Refresh ---
+        bottom_layout = QHBoxLayout(); bottom_layout.setContentsMargins(0, 5, 0, 0)
+        timestamp_str = "..."
+        timestamp_iso = metadata.get('db_timestamp')
+        if timestamp_iso:
+            try:
+                dt_obj = datetime.fromisoformat(timestamp_iso)
+                if dt_obj.tzinfo is None: dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                dt_local = dt_obj.astimezone()
+                timestamp_str = dt_local.strftime("%H:%M") 
+            except ValueError: timestamp_str = "err"
+        
+        time_label = QLabel(timestamp_str)
+        time_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        time_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 10px; padding-top: 5px;")
+        
+        refresh_btn = QPushButton("🔄") 
+        refresh_btn.setFixedSize(25, 25)
+        refresh_btn.setToolTip("Dekripsi ulang")
+        refresh_btn.setStyleSheet(f"QPushButton {{ background-color: transparent; border: none; color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; }} QPushButton:hover {{ color: {self.COLOR_GOLD_HOVER}; }}")
+        
+        if item: refresh_btn.clicked.connect(lambda: self.on_chat_item_clicked(item))
             
+        bottom_layout.addWidget(time_label); bottom_layout.addStretch(); bottom_layout.addWidget(refresh_btn)
+        bubble_content_layout.addLayout(bottom_layout)
+        
+        # --- Styling Warna Bubble ---
+        if align == "sent":
+            bubble_frame.setStyleSheet(f"QFrame {{ background-color: {self.COLOR_BUBBLE_SENT}; border-radius: 12px; border-bottom-right-radius: 0px; }}")
+            container_layout.addStretch(); container_layout.addWidget(bubble_frame)
+        else: 
+            bubble_frame.setStyleSheet(f"QFrame {{ background-color: {self.COLOR_BUBBLE_RECV}; border-radius: 12px; border-bottom-left-radius: 0px; }}")
+            container_layout.addWidget(bubble_frame); container_layout.addStretch()
+
         return bubble_container
 
     def add_message_to_display(self, align, metadata, cached_data=None, error_text=None):
-        item = QListWidgetItem(); item.setData(Qt.UserRole, metadata)
+        item = QListWidgetItem() 
+        item.setData(Qt.UserRole, metadata)
+        
         if error_text:
-            item.setText(error_text); item.setForeground(QColor(self.COLOR_RED)); item.setTextAlignment(Qt.AlignCenter)
+            item.setText(error_text)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setForeground(QColor(self.COLOR_RED))
+            item.setSizeHint(QSize(0, 30))
             self.chat_display.addItem(item)
         else:
-            wid = self.create_chat_bubble(align, metadata, cached_data, item)
-            wid.adjustSize()
-            item.setSizeHint(QSize(wid.size().width(), wid.size().height()+10))
-            self.chat_display.addItem(item); self.chat_display.setItemWidget(item, wid)
+            bubble_widget = self.create_chat_bubble(align, metadata, cached_data, item)
+            bubble_widget.layout().activate(); bubble_widget.adjustSize()
+            real_size = bubble_widget.size(); real_size.setHeight(real_size.height() + 10) 
+            item.setSizeHint(real_size) 
+            self.chat_display.addItem(item); self.chat_display.setItemWidget(item, bubble_widget)
 
-    # Styles
+    # --- Helper Styling ---
     def input_style(self):
-        return f"QLineEdit {{ background-color: {self.COLOR_CARD}; border: 2px solid {self.COLOR_GOLD}; border-radius: 22px; padding: 10px; color: {self.COLOR_TEXT}; }}"
+        return f"""
+            QLineEdit {{
+                background-color: {self.COLOR_CARD};
+                border: 2px solid {self.COLOR_GOLD};
+                border-radius: 22px;
+                padding: 10px 20px;
+                color: {self.COLOR_TEXT};
+                font-size: 14px;
+                min-height: 25px; 
+            }}
+            QLineEdit:focus {{ border-color: {self.COLOR_GOLD_HOVER}; }}
+        """
+
     def button_style(self, base, hover, pressed, radius=12, text_color=None):
-        tc = text_color if text_color else self.COLOR_TEXT
-        return f"QPushButton {{ background-color: {base}; color: {tc}; border-radius: {radius}px; padding: 8px; font-weight: bold; }} QPushButton:hover {{ background-color: {hover}; }} QPushButton:pressed {{ background-color: {pressed}; }}"
+        text_col = text_color if text_color else self.COLOR_TEXT
+        return f"""
+            QPushButton {{
+                background-color: {base}; color: {text_col};
+                border: none; border-radius: {radius}px;
+                padding: 10px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: {hover}; }}
+            QPushButton:pressed {{ background-color: {pressed}; }}
+        """
