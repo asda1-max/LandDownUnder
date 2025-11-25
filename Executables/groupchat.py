@@ -10,15 +10,16 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QMessageBox,
     QListWidget, QListWidgetItem, QFileDialog,
     QInputDialog, QFrame, QApplication, QDialog,
-    QSizePolicy, QListView, QMenu, QAbstractItemView
+    QSizePolicy, QListView, QMenu, QAbstractItemView,
+    QPlainTextEdit
 )
-from PySide6.QtGui import QFont, QColor, QPixmap, QAction, QCursor
+from PySide6.QtGui import QFont, QColor, QPixmap, QAction, QCursor, QTextOption
 from PySide6.QtCore import Qt, QSize, QTimer
 from datetime import datetime, timezone 
 
-# Pastikan utils.py ada di satu folder yang sama
 from utils import CryptoEngine, vigenere_encrypt, vigenere_decrypt, encrypt_whitemist, decrypt_whitemist
 
+# --- CLASS UTAMA ---
 class GroupChatPage(QWidget):
     
     # --- Palet Warna ---
@@ -78,9 +79,8 @@ class GroupChatPage(QWidget):
         QTimer.singleShot(0, self.refresh_chat_display)
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self.refresh_chat_display)
-        self.poll_timer.start(1000) 
+        self.poll_timer.start(5000) # Polling tiap 5 detik
 
-    # --- Resize Event Fix: Recalculate heights on window resize ---
     def resizeEvent(self, event):
         super().resizeEvent(event)
         for i in range(self.chat_display.count()):
@@ -91,7 +91,6 @@ class GroupChatPage(QWidget):
                 new_size = widget.sizeHint()
                 new_size.setHeight(new_size.height() + 10)
                 item.setSizeHint(new_size)
-    # -------------------------------------------------------------
 
     def get_message_id(self, metadata):
         msg_type = metadata.get('type')
@@ -136,6 +135,16 @@ class GroupChatPage(QWidget):
         title.setStyleSheet(f"color: {self.COLOR_GOLD};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # --- TOMBOL REFRESH MANUAL ---
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setToolTip("Refresh Manual")
+        refresh_btn.setStyleSheet(self.button_style(
+            base=self.COLOR_CARD, hover=self.COLOR_CARD_HOVER, pressed=self.COLOR_CARD_BG, radius=10
+        ))
+        refresh_btn.setFixedWidth(50)
+        refresh_btn.clicked.connect(lambda: self.refresh_chat_display(force_scroll=True))
+        # -----------------------------
+
         invite_btn = QPushButton("Invite +")
         invite_btn.setStyleSheet(self.button_style(
             base=self.COLOR_CARD, hover=self.COLOR_CARD_HOVER, pressed=self.COLOR_CARD_BG, radius=10
@@ -145,6 +154,7 @@ class GroupChatPage(QWidget):
         
         top_bar_layout.addWidget(back_btn)
         top_bar_layout.addWidget(title)
+        top_bar_layout.addWidget(refresh_btn) # Add Refresh Button
         top_bar_layout.addWidget(invite_btn)
         
         self.chat_display = QListWidget()
@@ -161,13 +171,11 @@ class GroupChatPage(QWidget):
         self.chat_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.chat_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
-        # --- [OPTIMASI RENDERING FINAL] ---
         self.chat_display.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.chat_display.setUniformItemSizes(False)
         self.chat_display.setResizeMode(QListView.ResizeMode.Adjust)
         self.chat_display.setLayoutMode(QListView.LayoutMode.Batched)
         self.chat_display.setBatchSize(10)
-        # ----------------------------------
         
         self.chat_display.itemClicked.connect(self.on_chat_item_clicked)
 
@@ -226,7 +234,7 @@ class GroupChatPage(QWidget):
                     
                     if response.status_code == 200:
                         QMessageBox.information(self, "Sukses", f"{username} berhasil diundang!")
-                        
+                        # Kirim system message
                         system_msg = f"--- INFO: {self.current_user} mengundang {username} ke grup ---"
                         data_bytes = system_msg.encode('utf-8')
                         encrypted_payload = self.session_crypto.encrypt(data_bytes)
@@ -236,25 +244,32 @@ class GroupChatPage(QWidget):
                             'db_timestamp': datetime.now(timezone.utc).astimezone().isoformat()
                         }
                         self.message_manager.save_message(self.chat_id, metadata)
-                        self.refresh_chat_display()
+                        self.refresh_chat_display(force_scroll=True)
                     else:
                         err_msg = resp_json.get("message", "Gagal mengundang.")
                         QMessageBox.warning(self, "Gagal Invite", err_msg)
                 except Exception as e:
                     QMessageBox.warning(self, "Error", f"Gagal menghubungi server: {e}")
 
-    def refresh_chat_display(self):
+    # --- [SEAMLESS SCROLL REFRESH] ---
+    def refresh_chat_display(self, force_scroll=False):
         all_messages = self.message_manager.load_messages(self.chat_id)
         current_count = len(all_messages)
 
-        if current_count == self.last_loaded_count:
+        if current_count == self.last_loaded_count and not force_scroll:
             return
 
+        # Simpan posisi scrollbar saat ini
+        scrollbar = self.chat_display.verticalScrollBar()
+        old_scroll_value = scrollbar.value()
+        is_at_bottom = (old_scroll_value >= scrollbar.maximum() - 50) # Toleransi 50px dari bawah
+        
         start_index = self.last_loaded_count
         if current_count < self.last_loaded_count:
             self.chat_display.clear()
             self.rendered_message_ids.clear()
             start_index = 0
+            is_at_bottom = True # Kalau reset, anggap di bawah
 
         new_messages_list = all_messages[start_index:]
         new_messages_found = False
@@ -271,9 +286,15 @@ class GroupChatPage(QWidget):
         
         self.last_loaded_count = current_count
 
-        if new_messages_found:
+        if new_messages_found or force_scroll:
             QApplication.processEvents()
-            self.chat_display.scrollToBottom()
+            # Hanya scroll ke bawah jika sebelumnya user ada di bawah, atau dipaksa
+            if is_at_bottom or force_scroll:
+                self.chat_display.scrollToBottom()
+            else:
+                # Jika user sedang baca history di atas, pertahankan posisi
+                scrollbar.setValue(old_scroll_value)
+    # ---------------------------------
 
     def handle_send_message_super(self):
         message_text = self.message_input.text() 
@@ -303,7 +324,7 @@ class GroupChatPage(QWidget):
             
             message_id = self.get_message_id(metadata)
             self.save_to_cache(message_id, message_text)
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
             
         except Exception as e: 
             self.add_message_to_display("error", metadata=None, error_text=f"Error: {e}")
@@ -357,7 +378,7 @@ class GroupChatPage(QWidget):
             cache_data = {"text": message_to_hide, "image_path": cached_stego_path} 
             self.save_to_cache(message_id, cache_data)
 
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
             self.message_input.clear()
             os.remove(temp_filename)
             
@@ -394,7 +415,7 @@ class GroupChatPage(QWidget):
             metadata['file_id'] = file_id 
             metadata['db_timestamp'] = datetime.now(timezone.utc).astimezone().isoformat()
             self.message_manager.save_message(self.chat_id, metadata)
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
         except Exception as e: 
              self.add_message_to_display("error", metadata=None, error_text=f"Error Upload: {e}")
 
@@ -417,22 +438,22 @@ class GroupChatPage(QWidget):
         metadata = item.data(Qt.UserRole)
         if not metadata: return
         
-        # Handle System Message (Sudah didisplay di bubble, jadi klik tidak perlu popup)
-        if metadata.get('is_system_msg'):
-             return
+        if metadata.get('is_system_msg'): return
 
         msg_type = metadata.get('type')
         file_id = metadata.get('file_id')
         
+        # Simpan posisi scroll sebelum update widget agar tidak loncat
+        scrollbar = self.chat_display.verticalScrollBar()
+        current_scroll_val = scrollbar.value()
+
         try:
             if msg_type == 'text':
                 message_id = self.get_message_id(metadata)
                 encrypted_data_b64 = metadata.get('data')
                 
-                # Jika tidak ada data, abaikan
                 if not encrypted_data_b64: return
                 
-                # Input kunci untuk dekripsi
                 key, ok = QInputDialog.getText(self, "Dekripsi Teks", "Masukkan Kunci (White-Mist + Vigenere):")
                 if ok and key:
                     try:
@@ -447,12 +468,14 @@ class GroupChatPage(QWidget):
                         
                         if message_id: self.save_to_cache(message_id, decrypted_text)
                         
-                        # Update UI dengan teks yang sudah didekripsi
                         new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, decrypted_text, item)
                         new_widget.layout().activate(); new_widget.adjustSize()
                         real_size = new_widget.sizeHint()
                         real_size.setHeight(real_size.height() + 10)
                         item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
+                        
+                        # Restore Scroll Position
+                        scrollbar.setValue(current_scroll_val)
                         
                     except Exception as e:
                         QMessageBox.warning(self, "Gagal", f"Dekripsi gagal: {e}")
@@ -472,7 +495,6 @@ class GroupChatPage(QWidget):
                     except:
                         loading_dialog.close(); raise
 
-                # Dialog Preview & Dekripsi
                 msg_box = QMessageBox(self); msg_box.setWindowTitle("Pesan Gambar")
                 pixmap = QPixmap(local_stegano_path).scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 msg_box.setIconPixmap(pixmap)
@@ -504,13 +526,15 @@ class GroupChatPage(QWidget):
                             cache_data = {"text": decrypted_message, "image_path": local_stegano_path}
                             if message_id: self.save_to_cache(message_id, cache_data)
                             
-                            # Update UI
                             new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, cache_data, item)
                             new_widget.layout().activate(); new_widget.adjustSize()
                             real_size = new_widget.sizeHint()
                             real_size.setHeight(real_size.height() + 10)
                             item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
                             
+                            # Restore Scroll Position
+                            scrollbar.setValue(current_scroll_val)
+
                         except Exception as e:
                             QMessageBox.critical(self, "Gagal", f"Error: {e}")
 
@@ -552,7 +576,6 @@ class GroupChatPage(QWidget):
         menu.addAction(copy_action)
         menu.exec(label_widget.mapToGlobal(pos))
 
-    # --- [MODIFIKASI] CREATE CHAT BUBBLE UNTUK SYSTEM MSG ---
     def create_chat_bubble(self, align, metadata, cached_data=None, item=None):
         bubble_container = QWidget()
         container_layout = QHBoxLayout(bubble_container)
@@ -569,14 +592,12 @@ class GroupChatPage(QWidget):
         msg_type = metadata.get('type', 'unknown')
         is_system_msg = metadata.get('is_system_msg', False)
         
-        # --- [MODIFIKASI LEBAR BUBBLE] ---
         if is_system_msg:
              bubble_frame.setMinimumWidth(int(self.width() * 0.95))
              bubble_frame.setMaximumWidth(int(self.width() * 0.98))
         else:
              bubble_frame.setMinimumWidth(int(self.width() * 0.1))
              bubble_frame.setMaximumWidth(int(self.width() * 0.75))
-        # ---------------------------------
         
         content_max_width = bubble_frame.maximumWidth() - 24
         bubble_content_layout = QVBoxLayout(bubble_frame)
@@ -619,7 +640,6 @@ class GroupChatPage(QWidget):
                 content_label.setTextFormat(Qt.TextFormat.PlainText)
                 content_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px;")
                 
-                # OPTIMASI LAG
                 content_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
                 content_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 content_label.customContextMenuRequested.connect(lambda pos, lbl=content_label: self.show_copy_menu(pos, lbl))
@@ -690,9 +710,7 @@ class GroupChatPage(QWidget):
         bottom_layout.addWidget(time_label); bottom_layout.addStretch(); bottom_layout.addWidget(refresh_btn)
         bubble_content_layout.addLayout(bottom_layout)
         
-        # --- Styling Warna Bubble & Layout ---
         if is_system_msg:
-            # [MODIFIKASI] Center Layout Wide
             container_layout.addStretch()
             container_layout.addWidget(bubble_frame)
             container_layout.addStretch()
@@ -724,7 +742,6 @@ class GroupChatPage(QWidget):
             item.setSizeHint(real_size) 
             self.chat_display.addItem(item); self.chat_display.setItemWidget(item, bubble_widget)
 
-    # --- Helper Styling ---
     def input_style(self):
         return f"""
             QLineEdit {{

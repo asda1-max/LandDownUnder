@@ -16,9 +16,9 @@ from PySide6.QtGui import QFont, QColor, QPixmap, QAction, QCursor
 from PySide6.QtCore import Qt, QSize, QTimer
 from datetime import datetime, timezone 
 
-# Pastikan utils.py ada di satu folder yang sama
 from utils import CryptoEngine, vigenere_encrypt, vigenere_decrypt, encrypt_whitemist, decrypt_whitemist
 
+# --- CLASS CHAT PERSONAL ---
 class ChatPage(QWidget):
     
     # --- Palet Warna ---
@@ -78,13 +78,10 @@ class ChatPage(QWidget):
         QTimer.singleShot(0, self.refresh_chat_display)
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self.refresh_chat_display)
-        self.poll_timer.start(1000) 
+        self.poll_timer.start(5000) 
 
-    # --- Resize Event Fix: Recalculate heights on window resize ---
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Force re-layout of all items in list widget to fix wrapping
-        # This prevents "Layout Ngaco" when window size changes
         for i in range(self.chat_display.count()):
             item = self.chat_display.item(i)
             widget = self.chat_display.itemWidget(item)
@@ -93,7 +90,6 @@ class ChatPage(QWidget):
                 new_size = widget.sizeHint()
                 new_size.setHeight(new_size.height() + 10)
                 item.setSizeHint(new_size)
-    # -------------------------------------------------------------
 
     def get_message_id(self, metadata):
         msg_type = metadata.get('type')
@@ -138,8 +134,20 @@ class ChatPage(QWidget):
         title.setFont(QFont("Segoe UI", 16, QFont.Bold))
         title.setStyleSheet(f"color: {self.COLOR_GOLD};"); 
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # --- TOMBOL REFRESH MANUAL ---
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setToolTip("Refresh Manual")
+        refresh_btn.setStyleSheet(self.button_style(
+            base=self.COLOR_CARD, hover=self.COLOR_CARD_HOVER, pressed=self.COLOR_CARD_BG, radius=10
+        ))
+        refresh_btn.setFixedWidth(50)
+        refresh_btn.clicked.connect(lambda: self.refresh_chat_display(force_scroll=True))
+        # -----------------------------
         
-        top_bar_layout.addWidget(back_btn); top_bar_layout.addWidget(title)
+        top_bar_layout.addWidget(back_btn)
+        top_bar_layout.addWidget(title)
+        top_bar_layout.addWidget(refresh_btn) # Add Refresh Button
         
         self.chat_display = QListWidget()
         self.chat_display.setStyleSheet(f"""
@@ -155,16 +163,11 @@ class ChatPage(QWidget):
         self.chat_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.chat_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
-        # --- [OPTIMASI RENDERING FINAL] ---
-        # ScrollPerPixel = Smooth scrolling
-        # UniformItemSizes = False (Karena tinggi chat beda-beda)
-        # Batched = Render bertahap
         self.chat_display.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.chat_display.setUniformItemSizes(False) 
         self.chat_display.setResizeMode(QListView.ResizeMode.Adjust)
         self.chat_display.setLayoutMode(QListView.LayoutMode.Batched)
         self.chat_display.setBatchSize(10)
-        # -----------------------------
         
         self.chat_display.itemClicked.connect(self.on_chat_item_clicked)
 
@@ -208,18 +211,27 @@ class ChatPage(QWidget):
             self.poll_timer.stop()
         self.back_callback()
 
-    def refresh_chat_display(self):
+    # --- [SEAMLESS SCROLL REFRESH] ---
+    def refresh_chat_display(self, force_scroll=False):
         all_messages = self.message_manager.load_messages(self.chat_id)
         current_count = len(all_messages)
 
-        if current_count == self.last_loaded_count:
+        if current_count == self.last_loaded_count and not force_scroll:
             return
+
+        # Simpan posisi scrollbar saat ini
+        scrollbar = self.chat_display.verticalScrollBar()
+        old_scroll_value = scrollbar.value()
+        # Jika user ada di bawah (atau dekat bawah), nanti auto-scroll. 
+        # Jika user di atas baca history, jangan scroll.
+        is_at_bottom = (old_scroll_value >= scrollbar.maximum() - 50) 
 
         start_index = self.last_loaded_count
         if current_count < self.last_loaded_count:
             self.chat_display.clear()
             self.rendered_message_ids.clear()
             start_index = 0
+            is_at_bottom = True # Kalau reset, anggap harus scroll bawah
 
         new_messages_list = all_messages[start_index:]
         new_messages_found = False
@@ -236,9 +248,16 @@ class ChatPage(QWidget):
         
         self.last_loaded_count = current_count
 
-        if new_messages_found:
+        if new_messages_found or force_scroll:
             QApplication.processEvents()
-            self.chat_display.scrollToBottom()
+            # Logic pintar: 
+            # Scroll ke bawah HANYA jika user memang sedang di bawah, atau tombol refresh ditekan.
+            if is_at_bottom or force_scroll:
+                self.chat_display.scrollToBottom()
+            else:
+                # Jika user sedang di atas, kembalikan ke posisi semula
+                scrollbar.setValue(old_scroll_value)
+    # ---------------------------------
 
     def handle_send_message_super(self):
         message_text = self.message_input.text() 
@@ -260,7 +279,7 @@ class ChatPage(QWidget):
             self.message_manager.save_message(self.chat_id, metadata)
             message_id = self.get_message_id(metadata)
             self.save_to_cache(message_id, message_text)
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
         except Exception as e: 
             self.add_message_to_display("error", metadata=None, error_text=f"--- Error Super Enkripsi: {e} ---")
 
@@ -315,7 +334,7 @@ class ChatPage(QWidget):
             
             cache_data = {"text": message_to_hide, "image_path": cached_stego_path} 
             self.save_to_cache(message_id, cache_data)
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
             self.message_input.clear()
             os.remove(temp_filename)
             
@@ -355,7 +374,7 @@ class ChatPage(QWidget):
             metadata['db_timestamp'] = datetime.now(timezone.utc).astimezone().isoformat()
             
             self.message_manager.save_message(self.chat_id, metadata)
-            self.refresh_chat_display()
+            self.refresh_chat_display(force_scroll=True)
         except Exception as e: 
             self.add_message_to_display("error", metadata=None, error_text=f"Error Upload: {e}")
 
@@ -381,6 +400,10 @@ class ChatPage(QWidget):
         msg_type = metadata.get('type')
         file_id = metadata.get('file_id')
         
+        # Simpan posisi scroll sebelum manipulasi widget
+        scrollbar = self.chat_display.verticalScrollBar()
+        current_scroll_val = scrollbar.value()
+
         try:
             if msg_type == 'text':
                 message_id = self.get_message_id(metadata)
@@ -405,13 +428,15 @@ class ChatPage(QWidget):
                     
                     if message_id: self.save_to_cache(message_id, decrypted_text)
                     
-                    # Update UI
                     new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, decrypted_text, item)
                     new_widget.layout().activate(); new_widget.adjustSize()
                     real_size = new_widget.sizeHint()
                     real_size.setHeight(real_size.height() + 10)
                     item.setSizeHint(real_size)
                     self.chat_display.setItemWidget(item, new_widget)
+                    
+                    # Restore posisi scroll
+                    scrollbar.setValue(current_scroll_val)
 
             elif msg_type == 'file' and file_id:
                 local_path = os.path.join(self.temp_download_dir, file_id)
@@ -486,12 +511,14 @@ class ChatPage(QWidget):
                                 cache_data = {"text": decrypted_message, "image_path": local_stegano_path}
                                 self.save_to_cache(message_id, cache_data)
                             
-                            # Update UI
                             new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, cache_data, item)
                             new_widget.layout().activate(); new_widget.adjustSize()
                             real_size = new_widget.sizeHint()
                             real_size.setHeight(real_size.height() + 10)
                             item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
+                            
+                            # Restore posisi scroll
+                            scrollbar.setValue(current_scroll_val)
                             
                         except Exception as e:
                             QMessageBox.critical(self, "Gagal", f"Error: {e}")
@@ -499,7 +526,6 @@ class ChatPage(QWidget):
         except Exception as e:
             print(f"Error di clicked: {e}")
 
-    # --- [FIX UTAMA LAG & LAYOUT] ---
     def create_chat_bubble(self, align, metadata, cached_data=None, item=None):
         bubble_container = QWidget()
         container_layout = QHBoxLayout(bubble_container)
@@ -538,22 +564,16 @@ class ChatPage(QWidget):
         if msg_type == 'text':
             display_text = cached_data if cached_data else "[Pesan Teks Super-Terenkripsi]"
             
-            # --- [SOLUSI LAG]: Kembali ke QLabel, tapi matikan interaksi mouse ---
             content_label = QLabel(display_text)
             content_label.setWordWrap(True)
             content_label.setMaximumWidth(content_max_width)
             
-            # Gunakan PlainText format agar ringan
             content_label.setTextFormat(Qt.TextFormat.PlainText)
             content_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px;")
             
-            # [CRITICAL OPTIMIZATION]
-            # Mematikan TextSelectableByMouse menghilangkan lag saat scroll.
-            # Sebagai gantinya, user bisa klik kanan -> Copy.
             content_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
             content_label.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
             
-            # Tambahkan Context Menu untuk Copy
             content_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             content_label.customContextMenuRequested.connect(lambda pos, lbl=content_label: self.show_copy_menu(pos, lbl))
             
@@ -566,7 +586,6 @@ class ChatPage(QWidget):
                 image_path = cached_data.get('image_path')
                 
                 if image_path and os.path.exists(image_path):
-                    # Tampilkan gambar dengan smooth scaling
                     pixmap = QPixmap(image_path).scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     img_label = QLabel()
                     img_label.setPixmap(pixmap)
@@ -580,7 +599,6 @@ class ChatPage(QWidget):
                 text_label = QLabel(f"Pesan: {secret_text}")
                 text_label.setWordWrap(True)
                 text_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px; font-style: italic;")
-                # Optimasi Lag
                 text_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
                 text_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 text_label.customContextMenuRequested.connect(lambda pos, lbl=text_label: self.show_copy_menu(pos, lbl))
@@ -664,20 +682,13 @@ class ChatPage(QWidget):
             self.chat_display.addItem(item)
         else:
             bubble_widget = self.create_chat_bubble(align, metadata, cached_data, item)
-            
-            # Setup layout awal
-            bubble_widget.layout().activate() 
-            bubble_widget.adjustSize()
-            
-            # Hitung size hint yang benar agar tidak overlap
+            bubble_widget.layout().activate(); bubble_widget.adjustSize()
             real_size = bubble_widget.sizeHint()
             real_size.setHeight(real_size.height() + 10) # Padding extra
-            
             item.setSizeHint(real_size) 
             self.chat_display.addItem(item)
             self.chat_display.setItemWidget(item, bubble_widget)
 
-    # --- Helper Styling ---
     def input_style(self):
         return f"""
             QLineEdit {{
