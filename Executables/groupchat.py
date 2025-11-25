@@ -61,12 +61,7 @@ class GroupChatPage(QWidget):
         self.base_data_dir = os.path.join(base_project_dir, "local_data")
         
         # --- [FIX CACHE PER USER] ---
-        # Kita pisahkan cache berdasarkan USERNAME + GROUP_ID
-        # Agar Sender dan Receiver di PC yang sama tidak rebutan file cache
         self.cache_dir = os.path.join(self.base_data_dir, "group_caches") 
-        
-        # Nama file sekarang menyertakan current_user
-        # Contoh: cache_Rakha_GROUP_DevTeam.json
         self.cache_file = os.path.join(self.cache_dir, f"cache_{self.current_user}_{self.chat_id}.json")
         self.message_cache = self.load_cache()
         # ----------------------------
@@ -98,7 +93,6 @@ class GroupChatPage(QWidget):
         return None
 
     def load_cache(self):
-        # Membuka file cache milik USER INI saja
         if not os.path.exists(self.cache_file): return {}
         try:
             with open(self.cache_file, 'r', encoding='utf-8') as f:
@@ -106,7 +100,6 @@ class GroupChatPage(QWidget):
         except (json.JSONDecodeError, IOError): return {} 
 
     def save_to_cache(self, message_id, data_to_cache):
-        # Menyimpan ke file cache milik USER INI saja
         if not message_id: return
         self.message_cache[message_id] = data_to_cache
         try:
@@ -214,22 +207,18 @@ class GroupChatPage(QWidget):
     def handle_invite_user(self):
             username, ok = QInputDialog.getText(self, "Invite User", "Masukkan username untuk diundang:")
             if ok and username:
-                # [LOGIKA BARU] Panggil API invite
                 try:
                     payload = {
                         "group_name": self.group_name,
                         "requester": self.current_user,
                         "target_user": username
                     }
-                    
-                    # Kirim request ke API
                     response = requests.post(f"{self.api_url}/invite_user", json=payload, timeout=10)
                     resp_json = response.json()
                     
                     if response.status_code == 200:
                         QMessageBox.information(self, "Sukses", f"{username} berhasil diundang!")
                         
-                        # Opsional: Kirim pesan sistem agar semua member tahu (hanya kosmetik chat)
                         system_msg = f"--- INFO: {self.current_user} mengundang {username} ke grup ---"
                         data_bytes = system_msg.encode('utf-8')
                         encrypted_payload = self.session_crypto.encrypt(data_bytes)
@@ -241,14 +230,10 @@ class GroupChatPage(QWidget):
                         self.message_manager.save_message(self.chat_id, metadata)
                         self.refresh_chat_display()
                     else:
-                        # Tampilkan error dari server (misal: "Hanya pembuat grup...")
                         err_msg = resp_json.get("message", "Gagal mengundang.")
                         QMessageBox.warning(self, "Gagal Invite", err_msg)
-                        
                 except Exception as e:
                     QMessageBox.warning(self, "Error", f"Gagal menghubungi server: {e}")
-
-        # ... (Sisa method refresh_chat_display, dll TETAP SAMA seperti sebelumnya) ...
 
     def refresh_chat_display(self):
         all_messages = self.message_manager.load_messages(self.chat_id)
@@ -259,12 +244,8 @@ class GroupChatPage(QWidget):
             
             if msg_id and msg_id not in self.rendered_message_ids:
                 align = "sent" if msg_data['sender'] == self.current_user else "received"
-                
-                # Load dari cache spesifik user
                 cached_data = self.message_cache.get(msg_id)
-                
                 self.add_message_to_display(align, msg_data, cached_data)
-                
                 self.rendered_message_ids.add(msg_id)
                 new_messages_found = True
         
@@ -298,10 +279,8 @@ class GroupChatPage(QWidget):
             }
             self.message_manager.save_message(self.chat_id, metadata)
             
-            # PENTING: Simpan ke cache user sendiri
             message_id = self.get_message_id(metadata)
             self.save_to_cache(message_id, message_text)
-            
             self.refresh_chat_display()
             
         except Exception as e: 
@@ -416,15 +395,9 @@ class GroupChatPage(QWidget):
         metadata = item.data(Qt.UserRole)
         if not metadata: return
         
-        # Handle System Message
+        # Handle System Message (Sudah didisplay di bubble, jadi klik tidak perlu popup)
         if metadata.get('is_system_msg'):
-            try:
-                encrypted_data = metadata.get('data').encode('utf-8')
-                decrypted_bytes = self.session_crypto.decrypt(encrypted_data)
-                QMessageBox.information(self, "Info Sistem", decrypted_bytes.decode('utf-8'))
-            except:
-                QMessageBox.information(self, "Info Sistem", "Pesan sistem tidak dapat didekripsi.")
-            return
+             return
 
         msg_type = metadata.get('type')
         file_id = metadata.get('file_id')
@@ -567,7 +540,7 @@ class GroupChatPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Terjadi error: {e}")
 
-    # --- CREATE CHAT BUBBLE (Konsisten) ---
+    # --- [MODIFIKASI] CREATE CHAT BUBBLE UNTUK SYSTEM MSG ---
     def create_chat_bubble(self, align, metadata, cached_data=None, item=None):
         bubble_container = QWidget()
         container_layout = QHBoxLayout(bubble_container)
@@ -579,40 +552,69 @@ class GroupChatPage(QWidget):
         bubble_frame.setFrameShadow(QFrame.Shadow.Plain)
         bubble_frame.setLineWidth(0)
         
+        # Default policy
         bubble_frame.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        bubble_frame.setMinimumWidth(self.width() * 0.3)
-        bubble_frame.setMaximumWidth(self.width() * 0.7)
+        
+        msg_type = metadata.get('type', 'unknown')
+        is_system_msg = metadata.get('is_system_msg', False)
+        
+        # --- [MODIFIKASI LEBAR BUBBLE] ---
+        if is_system_msg:
+             # System message WIDE (95% dari layar)
+             bubble_frame.setMinimumWidth(int(self.width() * 0.95))
+             bubble_frame.setMaximumWidth(int(self.width() * 0.98))
+        else:
+             # Normal message (30% - 70%)
+             bubble_frame.setMinimumWidth(int(self.width() * 0.3))
+             bubble_frame.setMaximumWidth(int(self.width() * 0.7))
+        # ---------------------------------
+        
+        content_max_width = bubble_frame.maximumWidth() - 24
 
         bubble_content_layout = QVBoxLayout(bubble_frame)
         bubble_content_layout.setContentsMargins(12, 10, 12, 8)
         bubble_content_layout.setSpacing(8)
         
-        msg_type = metadata.get('type', 'unknown')
-        content_max_width = (self.width() * 0.7) - 24
-        
         # --- Bagian Nama Pengirim ---
-        if align == "sent":
-            name_label = QLabel("YOU")
-            name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
-            bubble_content_layout.addWidget(name_label)
-        elif align == "received":
-            prefix = metadata.get('sender', 'Unknown')
-            name_label = QLabel(prefix)
-            name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
-            bubble_content_layout.addWidget(name_label)
+        if not is_system_msg:
+            if align == "sent":
+                name_label = QLabel("YOU")
+                name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
+                bubble_content_layout.addWidget(name_label)
+            elif align == "received":
+                prefix = metadata.get('sender', 'Unknown')
+                name_label = QLabel(prefix)
+                name_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                name_label.setStyleSheet(f"color: {self.COLOR_GOLD};")
+                bubble_content_layout.addWidget(name_label)
         
         # --- Bagian Konten Pesan ---
         if msg_type == 'text':
-            # Jika ada cached_data, tampilkan. Jika tidak, placeholder.
-            display_text = cached_data if cached_data else "[Pesan Teks Super-Terenkripsi]"
+            if is_system_msg:
+                # Auto Decrypt System Message
+                try:
+                    enc_data = metadata.get('data').encode('utf-8')
+                    display_text = self.session_crypto.decrypt(enc_data).decode('utf-8')
+                except:
+                    display_text = "[Error Decrypt System Msg]"
+                
+                text_color_style = f"color: {self.COLOR_BACKGROUND}; font-weight: bold;" 
+            else:
+                display_text = cached_data if cached_data else "[Pesan Teks Super-Terenkripsi]"
+                text_color_style = f"color: {self.COLOR_TEXT};"
+
             content_label = QLabel(display_text)
             content_label.setWordWrap(True)
             content_label.setMaximumWidth(content_max_width)
-            content_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px;")
+            content_label.setStyleSheet(f"{text_color_style} font-size: 14px;")
             content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             content_label.setMinimumHeight(30)
+            
+            # [MODIFIKASI] Center Text untuk System Msg
+            if is_system_msg:
+                content_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                
             bubble_content_layout.addWidget(content_label)
 
         elif msg_type == 'stegano':
@@ -642,7 +644,6 @@ class GroupChatPage(QWidget):
                 text_label.setMinimumHeight(30)
                 bubble_content_layout.addWidget(text_label)
             else:
-                # Jika belum didekripsi (tidak ada cache)
                 content_label = QLabel(f"🖼️ Stegano Image (Encrypted)")
                 content_label.setWordWrap(True)
                 content_label.setMaximumWidth(content_max_width)
@@ -671,22 +672,30 @@ class GroupChatPage(QWidget):
                 timestamp_str = dt_local.strftime("%H:%M") 
             except ValueError: timestamp_str = "err"
         
+        time_color = self.COLOR_PANE_LEFT if is_system_msg else self.COLOR_TEXT_SUBTLE
         time_label = QLabel(timestamp_str)
         time_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
-        time_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 10px; padding-top: 5px;")
+        time_label.setStyleSheet(f"color: {time_color}; font-size: 10px; padding-top: 5px;")
         
         refresh_btn = QPushButton("🔄") 
         refresh_btn.setFixedSize(25, 25)
         refresh_btn.setToolTip("Dekripsi ulang")
-        refresh_btn.setStyleSheet(f"QPushButton {{ background-color: transparent; border: none; color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; }} QPushButton:hover {{ color: {self.COLOR_GOLD_HOVER}; }}")
+        btn_color = self.COLOR_PANE_LEFT if is_system_msg else self.COLOR_TEXT_SUBTLE
+        refresh_btn.setStyleSheet(f"QPushButton {{ background-color: transparent; border: none; color: {btn_color}; font-size: 14px; }} QPushButton:hover {{ color: {self.COLOR_GOLD_HOVER}; }}")
         
         if item: refresh_btn.clicked.connect(lambda: self.on_chat_item_clicked(item))
             
         bottom_layout.addWidget(time_label); bottom_layout.addStretch(); bottom_layout.addWidget(refresh_btn)
         bubble_content_layout.addLayout(bottom_layout)
         
-        # --- Styling Warna Bubble ---
-        if align == "sent":
+        # --- Styling Warna Bubble & Layout ---
+        if is_system_msg:
+            # [MODIFIKASI] Center Layout Wide
+            container_layout.addStretch()
+            container_layout.addWidget(bubble_frame)
+            container_layout.addStretch()
+            bubble_frame.setStyleSheet(f"QFrame {{ background-color: {self.COLOR_GOLD}; border-radius: 12px; }}")
+        elif align == "sent":
             bubble_frame.setStyleSheet(f"QFrame {{ background-color: {self.COLOR_BUBBLE_SENT}; border-radius: 12px; border-bottom-right-radius: 0px; }}")
             container_layout.addStretch(); container_layout.addWidget(bubble_frame)
         else: 
