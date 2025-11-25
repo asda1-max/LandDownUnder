@@ -13,8 +13,11 @@ from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtCore import Qt, QThread, QObject, Signal, Slot
 
 # --- Konstanta Global untuk Biometrik ---
-CASCADE_PATH = "./fm/hfd.xml"
+CASCADE_PATH = "./Executables/fm/hfd.xml"
 API_URL = "https://morsz.azeroth.site" # Ganti dengan URL server Anda
+
+print("CURRENT WORKING DIR:", os.getcwd())
+print("FILE LOCATION:", os.path.abspath(__file__))
 
 #
 # --- [DARI CONTOH] Class Worker untuk Login Wajah ---
