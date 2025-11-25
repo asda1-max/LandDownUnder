@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QMessageBox,
     QListWidget, QListWidgetItem, QFileDialog,
     QInputDialog, QFrame, QApplication, QDialog,
-    QSizePolicy, QListView, QTextEdit
+    QSizePolicy, QListView, QMenu, QAbstractItemView
 )
-from PySide6.QtGui import QFont, QColor, QPixmap
+from PySide6.QtGui import QFont, QColor, QPixmap, QAction, QCursor
 from PySide6.QtCore import Qt, QSize, QTimer
 from datetime import datetime, timezone 
 
@@ -21,7 +21,7 @@ from utils import CryptoEngine, vigenere_encrypt, vigenere_decrypt, encrypt_whit
 
 class GroupChatPage(QWidget):
     
-    # --- Palet Warna (Konsisten dengan chat.py) ---
+    # --- Palet Warna ---
     COLOR_BACKGROUND = "#1A1B2E"
     COLOR_PANE_LEFT = "#272540" 
     COLOR_PANE_RIGHT = "#1A1B2E"
@@ -47,7 +47,6 @@ class GroupChatPage(QWidget):
         self.message_manager = message_manager
         self.back_callback = back_callback
         
-        # ID Chat untuk grup
         self.chat_id = f"GROUP_{self.group_name}"
         self.session_crypto = CryptoEngine(shared_password)
         
@@ -59,18 +58,16 @@ class GroupChatPage(QWidget):
         base_project_dir = os.path.dirname(script_dir)
 
         self.base_data_dir = os.path.join(base_project_dir, "local_data")
-        
-        # --- [FIX CACHE PER USER] ---
         self.cache_dir = os.path.join(self.base_data_dir, "group_caches") 
         self.cache_file = os.path.join(self.cache_dir, f"cache_{self.current_user}_{self.chat_id}.json")
         self.message_cache = self.load_cache()
-        # ----------------------------
         
         self.temp_stegano_dir = os.path.join(self.base_data_dir, "temp_stegano")
         self.temp_download_dir = os.path.join(self.base_data_dir, "temp_downloads")
         self.temp_decrypted_dir = os.path.join(self.base_data_dir, "temp_decrypted")
         
         self.rendered_message_ids = set()
+        self.last_loaded_count = 0
         
         for folder in [self.base_data_dir, self.cache_dir, self.temp_stegano_dir, self.temp_download_dir, self.temp_decrypted_dir]:
             if not os.path.exists(folder):
@@ -83,7 +80,19 @@ class GroupChatPage(QWidget):
         self.poll_timer.timeout.connect(self.refresh_chat_display)
         self.poll_timer.start(1000) 
 
-    # --- Cache Functions ---
+    # --- Resize Event Fix: Recalculate heights on window resize ---
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        for i in range(self.chat_display.count()):
+            item = self.chat_display.item(i)
+            widget = self.chat_display.itemWidget(item)
+            if widget:
+                widget.adjustSize()
+                new_size = widget.sizeHint()
+                new_size.setHeight(new_size.height() + 10)
+                item.setSizeHint(new_size)
+    # -------------------------------------------------------------
+
     def get_message_id(self, metadata):
         msg_type = metadata.get('type')
         if msg_type == 'text':
@@ -108,14 +117,12 @@ class GroupChatPage(QWidget):
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.message_cache, f, indent=2, ensure_ascii=False)
         except IOError as e: print(f"Peringatan: Gagal menyimpan cache ke file: {e}")
-    # -----------------------
 
     def init_ui(self):
         self.resize(700, 800) 
         self.setStyleSheet(f"background-color: {self.COLOR_BACKGROUND};")
         layout = QVBoxLayout(self); layout.setContentsMargins(20, 20, 20, 20); layout.setSpacing(15)
 
-        # --- Top Bar ---
         top_bar_layout = QHBoxLayout()
         back_btn = QPushButton("< Back")
         back_btn.setStyleSheet(self.button_style(
@@ -130,7 +137,6 @@ class GroupChatPage(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         invite_btn = QPushButton("Invite +")
-        invite_btn.setToolTip("Undang orang ke grup")
         invite_btn.setStyleSheet(self.button_style(
             base=self.COLOR_CARD, hover=self.COLOR_CARD_HOVER, pressed=self.COLOR_CARD_BG, radius=10
         ))
@@ -141,7 +147,6 @@ class GroupChatPage(QWidget):
         top_bar_layout.addWidget(title)
         top_bar_layout.addWidget(invite_btn)
         
-        # --- Area Chat ---
         self.chat_display = QListWidget()
         self.chat_display.setStyleSheet(f"""
             QListWidget {{ 
@@ -155,14 +160,17 @@ class GroupChatPage(QWidget):
         self.chat_display.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.chat_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.chat_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.chat_display.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        
+        # --- [OPTIMASI RENDERING FINAL] ---
+        self.chat_display.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.chat_display.setUniformItemSizes(False)
+        self.chat_display.setResizeMode(QListView.ResizeMode.Adjust)
         self.chat_display.setLayoutMode(QListView.LayoutMode.Batched)
         self.chat_display.setBatchSize(10)
-        self.chat_display.setWordWrap(False)
+        # ----------------------------------
+        
         self.chat_display.itemClicked.connect(self.on_chat_item_clicked)
 
-        # --- Input Bar ---
         input_bar_layout = QHBoxLayout()
         self.attach_btn = QPushButton("🖼️ Gbr"); 
         self.attach_btn.setToolTip("Steganografi")
@@ -237,9 +245,21 @@ class GroupChatPage(QWidget):
 
     def refresh_chat_display(self):
         all_messages = self.message_manager.load_messages(self.chat_id)
+        current_count = len(all_messages)
+
+        if current_count == self.last_loaded_count:
+            return
+
+        start_index = self.last_loaded_count
+        if current_count < self.last_loaded_count:
+            self.chat_display.clear()
+            self.rendered_message_ids.clear()
+            start_index = 0
+
+        new_messages_list = all_messages[start_index:]
         new_messages_found = False
 
-        for msg_data in all_messages:
+        for msg_data in new_messages_list:
             msg_id = self.get_message_id(msg_data)
             
             if msg_id and msg_id not in self.rendered_message_ids:
@@ -249,6 +269,8 @@ class GroupChatPage(QWidget):
                 self.rendered_message_ids.add(msg_id)
                 new_messages_found = True
         
+        self.last_loaded_count = current_count
+
         if new_messages_found:
             QApplication.processEvents()
             self.chat_display.scrollToBottom()
@@ -382,7 +404,7 @@ class GroupChatPage(QWidget):
         dialog.setWindowTitle("Mengunduh...")
         dialog.setStyleSheet(f"background-color: {self.COLOR_BACKGROUND}; color: {self.COLOR_TEXT}; font-size: 14px;")
         layout = QVBoxLayout()
-        label = QLabel(f"Sedang mengunduh file:\n{filename}\n\nHarap tunggu...")
+        label = QLabel(f"Sedang mengunduh:\n{filename}")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
         dialog.setLayout(layout)
@@ -428,7 +450,8 @@ class GroupChatPage(QWidget):
                         # Update UI dengan teks yang sudah didekripsi
                         new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, decrypted_text, item)
                         new_widget.layout().activate(); new_widget.adjustSize()
-                        real_size = new_widget.size(); real_size.setHeight(real_size.height() + 10)
+                        real_size = new_widget.sizeHint()
+                        real_size.setHeight(real_size.height() + 10)
                         item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
                         
                     except Exception as e:
@@ -462,7 +485,7 @@ class GroupChatPage(QWidget):
                     if ok and key:
                         try:
                             raw_revealed = lsb.reveal(local_stegano_path)
-                            if not raw_revealed: raise ValueError("Gambar kosong/bukan stegano.")
+                            if not raw_revealed: raise ValueError("Gambar kosong.")
                             
                             clean_payload = raw_revealed
                             if raw_revealed.startswith("<LEN:") and len(raw_revealed) >= 16:
@@ -477,37 +500,19 @@ class GroupChatPage(QWidget):
 
                             decrypted_message = vigenere_decrypt(vigenere_ciphertext, key)
                             
-                            # Cache & Update
                             message_id = self.get_message_id(metadata)
                             cache_data = {"text": decrypted_message, "image_path": local_stegano_path}
                             if message_id: self.save_to_cache(message_id, cache_data)
                             
-                            # Result Dialog
-                            result_dialog = QDialog(self); result_dialog.setWindowTitle("Pesan Tersembunyi")
-                            result_dialog.resize(500, 400)
-                            res_layout = QVBoxLayout(result_dialog)
-                            
-                            info_lbl = QLabel("Isi Pesan (Decrypted):")
-                            info_lbl.setStyleSheet(f"color: {self.COLOR_GOLD}; font-weight: bold;")
-                            res_layout.addWidget(info_lbl)
-                            
-                            text_area = QTextEdit(); text_area.setPlainText(decrypted_message); text_area.setReadOnly(True)
-                            text_area.setStyleSheet(f"background-color: {self.COLOR_PANE_LEFT}; color: {self.COLOR_TEXT}; border: 1px solid {self.COLOR_GOLD};")
-                            res_layout.addWidget(text_area)
-                            
-                            close_btn = QPushButton("Tutup"); close_btn.clicked.connect(result_dialog.accept)
-                            close_btn.setStyleSheet(self.button_style(base=self.COLOR_RED, hover=self.COLOR_RED_HOVER, pressed=self.COLOR_RED_PRESSED))
-                            res_layout.addWidget(close_btn)
-                            result_dialog.exec()
-                            
                             # Update UI
                             new_widget = self.create_chat_bubble("received" if metadata['sender'] != self.current_user else "sent", metadata, cache_data, item)
                             new_widget.layout().activate(); new_widget.adjustSize()
-                            real_size = new_widget.size(); real_size.setHeight(real_size.height() + 10)
+                            real_size = new_widget.sizeHint()
+                            real_size.setHeight(real_size.height() + 10)
                             item.setSizeHint(real_size); self.chat_display.setItemWidget(item, new_widget)
                             
                         except Exception as e:
-                            QMessageBox.critical(self, "Gagal Dekripsi", f"Error: {e}")
+                            QMessageBox.critical(self, "Gagal", f"Error: {e}")
 
             elif msg_type == 'file' and file_id:
                 local_path = os.path.join(self.temp_download_dir, file_id)
@@ -518,7 +523,7 @@ class GroupChatPage(QWidget):
                     download_url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
                     response = requests.get(download_url, timeout=60)
                     loading_dialog.close() 
-                    if response.status_code != 200: raise Exception("Gagal unduh file.")
+                    if response.status_code != 200: raise Exception("Gagal unduh.")
                     with open(local_path, "wb") as f: f.write(response.content)
                 
                 key, ok = QInputDialog.getText(self, "Dekripsi File", "Masukkan Kunci:", QLineEdit.Password)
@@ -535,10 +540,17 @@ class GroupChatPage(QWidget):
                 
                 decrypted_path = os.path.join(self.temp_decrypted_dir, f"DECRYPTED_{filename}")
                 with open(decrypted_path, "wb") as f: f.write(decrypted_bytes)
-                QMessageBox.information(self, "Sukses", f"File disimpan di:\n{decrypted_path}")
+                QMessageBox.information(self, "Sukses", f"Disimpan di:\n{decrypted_path}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Terjadi error: {e}")
+
+    def show_copy_menu(self, pos, label_widget):
+        menu = QMenu(self)
+        copy_action = QAction("Copy Text", self)
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(label_widget.text()))
+        menu.addAction(copy_action)
+        menu.exec(label_widget.mapToGlobal(pos))
 
     # --- [MODIFIKASI] CREATE CHAT BUBBLE UNTUK SYSTEM MSG ---
     def create_chat_bubble(self, align, metadata, cached_data=None, item=None):
@@ -552,25 +564,21 @@ class GroupChatPage(QWidget):
         bubble_frame.setFrameShadow(QFrame.Shadow.Plain)
         bubble_frame.setLineWidth(0)
         
-        # Default policy
+        # Policy
         bubble_frame.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
-        
         msg_type = metadata.get('type', 'unknown')
         is_system_msg = metadata.get('is_system_msg', False)
         
         # --- [MODIFIKASI LEBAR BUBBLE] ---
         if is_system_msg:
-             # System message WIDE (95% dari layar)
              bubble_frame.setMinimumWidth(int(self.width() * 0.95))
              bubble_frame.setMaximumWidth(int(self.width() * 0.98))
         else:
-             # Normal message (30% - 70%)
-             bubble_frame.setMinimumWidth(int(self.width() * 0.3))
-             bubble_frame.setMaximumWidth(int(self.width() * 0.7))
+             bubble_frame.setMinimumWidth(int(self.width() * 0.1))
+             bubble_frame.setMaximumWidth(int(self.width() * 0.75))
         # ---------------------------------
         
         content_max_width = bubble_frame.maximumWidth() - 24
-
         bubble_content_layout = QVBoxLayout(bubble_frame)
         bubble_content_layout.setContentsMargins(12, 10, 12, 8)
         bubble_content_layout.setSpacing(8)
@@ -592,30 +600,31 @@ class GroupChatPage(QWidget):
         # --- Bagian Konten Pesan ---
         if msg_type == 'text':
             if is_system_msg:
-                # Auto Decrypt System Message
                 try:
                     enc_data = metadata.get('data').encode('utf-8')
                     display_text = self.session_crypto.decrypt(enc_data).decode('utf-8')
                 except:
                     display_text = "[Error Decrypt System Msg]"
                 
-                text_color_style = f"color: {self.COLOR_BACKGROUND}; font-weight: bold;" 
+                content_label = QLabel(display_text)
+                content_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                content_label.setStyleSheet(f"color: {self.COLOR_BACKGROUND}; font-weight: bold; font-size: 14px;")
+                bubble_content_layout.addWidget(content_label)
             else:
                 display_text = cached_data if cached_data else "[Pesan Teks Super-Terenkripsi]"
-                text_color_style = f"color: {self.COLOR_TEXT};"
-
-            content_label = QLabel(display_text)
-            content_label.setWordWrap(True)
-            content_label.setMaximumWidth(content_max_width)
-            content_label.setStyleSheet(f"{text_color_style} font-size: 14px;")
-            content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            content_label.setMinimumHeight(30)
-            
-            # [MODIFIKASI] Center Text untuk System Msg
-            if is_system_msg:
-                content_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 
-            bubble_content_layout.addWidget(content_label)
+                content_label = QLabel(display_text)
+                content_label.setWordWrap(True)
+                content_label.setMaximumWidth(content_max_width)
+                content_label.setTextFormat(Qt.TextFormat.PlainText)
+                content_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px;")
+                
+                # OPTIMASI LAG
+                content_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+                content_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                content_label.customContextMenuRequested.connect(lambda pos, lbl=content_label: self.show_copy_menu(pos, lbl))
+                
+                bubble_content_layout.addWidget(content_label)
 
         elif msg_type == 'stegano':
             filename = metadata.get('filename', 'unknown.png')
@@ -623,7 +632,6 @@ class GroupChatPage(QWidget):
                 secret_text = cached_data.get('text', '[ERROR CACHE]')
                 image_path = cached_data.get('image_path')
                 
-                # --- THUMBNAIL LOGIC ---
                 if image_path and os.path.exists(image_path):
                     pixmap = QPixmap(image_path).scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     img_label = QLabel()
@@ -632,32 +640,27 @@ class GroupChatPage(QWidget):
                     bubble_content_layout.addWidget(img_label)
                 else:
                     stegano_label = QLabel(f"🖼️ Stegano: {filename}")
-                    stegano_label.setMaximumWidth(content_max_width)
                     stegano_label.setWordWrap(True)
                     bubble_content_layout.addWidget(stegano_label)
                 
                 text_label = QLabel(f"Pesan: {secret_text}")
                 text_label.setWordWrap(True)
-                text_label.setMaximumWidth(content_max_width)
                 text_label.setStyleSheet(f"color: {self.COLOR_TEXT}; font-size: 14px; font-style: italic;")
-                text_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                text_label.setMinimumHeight(30)
+                text_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+                text_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                text_label.customContextMenuRequested.connect(lambda pos, lbl=text_label: self.show_copy_menu(pos, lbl))
                 bubble_content_layout.addWidget(text_label)
             else:
                 content_label = QLabel(f"🖼️ Stegano Image (Encrypted)")
                 content_label.setWordWrap(True)
-                content_label.setMaximumWidth(content_max_width)
                 content_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; font-style: italic;")
-                content_label.setMinimumHeight(30)
                 bubble_content_layout.addWidget(content_label)
 
         elif msg_type == 'file':
             filename = metadata.get('filename', 'unknown_file')
             content_label = QLabel(f"📂 File: {filename}")
             content_label.setWordWrap(True)
-            content_label.setMaximumWidth(content_max_width)
             content_label.setStyleSheet(f"color: {self.COLOR_TEXT_SUBTLE}; font-size: 14px; font-style: italic;")
-            content_label.setMinimumHeight(30)
             bubble_content_layout.addWidget(content_label)
         
         # --- Timestamp & Refresh ---
@@ -679,7 +682,6 @@ class GroupChatPage(QWidget):
         
         refresh_btn = QPushButton("🔄") 
         refresh_btn.setFixedSize(25, 25)
-        refresh_btn.setToolTip("Dekripsi ulang")
         btn_color = self.COLOR_PANE_LEFT if is_system_msg else self.COLOR_TEXT_SUBTLE
         refresh_btn.setStyleSheet(f"QPushButton {{ background-color: transparent; border: none; color: {btn_color}; font-size: 14px; }} QPushButton:hover {{ color: {self.COLOR_GOLD_HOVER}; }}")
         
@@ -717,7 +719,8 @@ class GroupChatPage(QWidget):
         else:
             bubble_widget = self.create_chat_bubble(align, metadata, cached_data, item)
             bubble_widget.layout().activate(); bubble_widget.adjustSize()
-            real_size = bubble_widget.size(); real_size.setHeight(real_size.height() + 10) 
+            real_size = bubble_widget.sizeHint()
+            real_size.setHeight(real_size.height() + 10) 
             item.setSizeHint(real_size) 
             self.chat_display.addItem(item); self.chat_display.setItemWidget(item, bubble_widget)
 
