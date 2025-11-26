@@ -52,7 +52,7 @@ class GroupChatPage(QWidget):
         self.chat_id = f"GROUP_{self.group_name}"
         self.session_crypto = CryptoEngine(shared_password)
         
-        self.api_url = get_api_url()
+        
         self.MAX_FILE_SIZE = 2 * 1024 * 1024 # 2MB
         
         script_file_path = os.path.abspath(__file__)
@@ -230,7 +230,7 @@ class GroupChatPage(QWidget):
                         "requester": self.current_user,
                         "target_user": username
                     }
-                    response = requests.post(f"{self.api_url}/invite_user", json=payload, timeout=10)
+                    response = requests.post(f"{get_api_url()}/invite_user", json=payload, timeout=10)
                     resp_json = response.json()
                     
                     if response.status_code == 200:
@@ -358,7 +358,7 @@ class GroupChatPage(QWidget):
             
             with open(temp_filename, "rb") as f:
                 files = {'file': (base_filename, f, 'image/png')}
-                upload_url = f"{self.api_url}/upload_file/{self.chat_id}"
+                upload_url = f"{get_api_url()}/upload_file/{self.chat_id}"
                 response = requests.post(upload_url, files=files, timeout=30)
             
             if response.status_code != 200: raise Exception("Gagal upload")
@@ -408,7 +408,7 @@ class GroupChatPage(QWidget):
             self.add_message_to_display("error", metadata=None, error_text=f"--- Mengunggah {filename}... ---")
             
             files = {'file': (f"{filename}.enc", encrypted_payload_bytes, 'application/octet-stream')}
-            upload_url = f"{self.api_url}/upload_file/{self.chat_id}"
+            upload_url = f"{get_api_url()}/upload_file/{self.chat_id}"
             response = requests.post(upload_url, files=files, timeout=60)
             if response.status_code != 200: raise Exception("Gagal upload")
             
@@ -487,7 +487,7 @@ class GroupChatPage(QWidget):
                 
                 if not os.path.exists(local_stegano_path):
                     loading_dialog = self.show_loading_dialog(filename)
-                    download_url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
+                    download_url = f"{get_api_url()}/download_file/{self.chat_id}/{file_id}"
                     try:
                         response = requests.get(download_url, timeout=60)
                         loading_dialog.close() 
@@ -545,7 +545,7 @@ class GroupChatPage(QWidget):
                 
                 if not os.path.exists(local_path):
                     loading_dialog = self.show_loading_dialog(filename)
-                    download_url = f"{self.api_url}/download_file/{self.chat_id}/{file_id}"
+                    download_url = f"{get_api_url()}/download_file/{self.chat_id}/{file_id}"
                     response = requests.get(download_url, timeout=60)
                     loading_dialog.close() 
                     if response.status_code != 200: raise Exception("Gagal unduh.")

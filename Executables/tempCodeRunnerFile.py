@@ -1,1 +1,1 @@
-self.api_url
+get_api_url()

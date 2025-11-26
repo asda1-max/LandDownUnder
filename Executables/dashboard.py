@@ -36,7 +36,7 @@ class DashboardPage(QWidget):
         self.switch_to_group = switch_to_group 
         self.user_manager = user_manager
         self.current_user = None
-        self.api_url = get_api_url()
+        
         
         self.init_ui()
         
@@ -179,7 +179,7 @@ class DashboardPage(QWidget):
 
         # 1. Fetch My Groups from API (Server Side Invitation Check)
         try:
-            url = f"{self.api_url}/my_groups/{self.current_user}"
+            url = f"{get_api_url()}/my_groups/{self.current_user}"
             resp = requests.get(url, timeout=5)
             if resp.status_code == 200:
                 groups_data = resp.json().get('groups', [])
@@ -245,7 +245,7 @@ class DashboardPage(QWidget):
         
         try:
             payload = {"group_name": group_name, "creator": self.current_user}
-            resp = requests.post(f"{self.api_url}/create_group", json=payload, timeout=10)
+            resp = requests.post(f"{get_api_url()}/create_group", json=payload, timeout=10)
             
             if resp.status_code == 200:
                 QMessageBox.information(self, "Sukses", f"Grup {group_name} dibuat!")
