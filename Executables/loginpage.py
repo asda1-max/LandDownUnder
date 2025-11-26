@@ -5,6 +5,7 @@ import io
 import requests
 import time
 import numpy as np
+from config_manager import get_api_url, save_api_url
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit, 
     QPushButton, QMessageBox, QDialog
@@ -14,7 +15,8 @@ from PySide6.QtCore import Qt, QThread, QObject, Signal, Slot
 
 # --- Konstanta Global untuk Biometrik ---
 CASCADE_PATH = "./Executables/fm/hfd.xml"
-API_URL = "https://morsz.azeroth.site" # Ganti dengan URL server Anda
+API_URL = get_api_url() # Ganti dengan URL server Anda
+
 
 print("CURRENT WORKING DIR:", os.getcwd())
 print("FILE LOCATION:", os.path.abspath(__file__))
@@ -321,6 +323,13 @@ class LoginPage(QWidget):
         title.setFont(QFont("Segoe UI", 22, QFont.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setObjectName("titleLabel")
+        
+        self.settings_btn = QPushButton("⚙️ Server Settings")
+        self.settings_btn.setStyleSheet("""
+            QPushButton { background: transparent; color: #A9A8C0; border: none; font-size: 10pt; }
+            QPushButton:hover { color: #D4AF37; text-decoration: underline; }
+        """)
+        self.settings_btn.clicked.connect(self.open_settings)
 
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("Username")
@@ -362,6 +371,7 @@ class LoginPage(QWidget):
         layout.addWidget(self.face_btn)
         layout.addWidget(self.register_btn)
         layout.addWidget(self.status_label)
+        layout.addWidget(self.settings_btn)
 
     def apply_styles(self):
         # ... (apply_styles() tetap sama, tidak diubah) ...
@@ -447,6 +457,10 @@ class LoginPage(QWidget):
         self.user_input.setEnabled(not is_busy)
         self.pass_input.setEnabled(not is_busy)
         self.register_btn.setEnabled(not is_busy)
+        
+    def open_settings(self):
+        dialog = ServerSettingsDialog(self)
+        dialog.exec()
 
     def handle_login(self):
         """
@@ -489,6 +503,7 @@ class LoginPage(QWidget):
     # --- [BARU] Slot untuk hasil dari PasswordLoginWorker ---
     @Slot(str)
     def on_password_login_success(self, username):
+        print("login to : " , API_URL)
         """Dipanggil oleh PasswordLoginWorker ketika login sukses."""
         self.user_input.clear()
         self.pass_input.clear()
@@ -526,3 +541,36 @@ class LoginPage(QWidget):
         self.user_input.clear()
         self.pass_input.clear()
         self.switch_to_dashboard(username)
+
+class ServerSettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Server Settings")
+        self.setFixedSize(400, 180)
+        self.setStyleSheet(f"background-color: #1A1B2E; color: #F0F0F5;")
+        
+        layout = QVBoxLayout(self)
+        
+        lbl = QLabel("Set Custom API URL:")
+        lbl.setFont(QFont("Segoe UI", 12))
+        
+        self.url_input = QLineEdit()
+        self.url_input.setText(get_api_url())
+        self.url_input.setPlaceholderText("https://your-server.com")
+        self.url_input.setStyleSheet("background-color: #272540; color: white; padding: 8px; border: 1px solid #D4AF37; border-radius: 5px;")
+        
+        btn_save = QPushButton("Save Configuration")
+        btn_save.setStyleSheet("background-color: #D4AF37; color: #1A1B2E; padding: 10px; border-radius: 5px; font-weight: bold;")
+        btn_save.clicked.connect(self.save_config)
+        
+        layout.addWidget(lbl)
+        layout.addWidget(self.url_input)
+        layout.addWidget(btn_save)
+        
+    def save_config(self):
+        new_url = self.url_input.text()
+        if save_api_url(new_url):
+            QMessageBox.information(self, "Success", "Server URL updated successfully!")
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Error", "Failed to save configuration.")

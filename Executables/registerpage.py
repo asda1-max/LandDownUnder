@@ -6,6 +6,7 @@ import zipfile
 import requests
 import time
 import numpy as np
+from config_manager import get_api_url, save_api_url
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QPushButton, QMessageBox, QDialog, QProgressBar
@@ -15,7 +16,7 @@ from PySide6.QtCore import Qt, QThread, QObject, Signal, Slot
 
 # --- Konstanta Global untuk Biometrik ---
 CASCADE_PATH = "./Executables/fm/hfd.xml"
-API_URL = "https://morsz.azeroth.site" # Ganti dengan URL server Anda
+API_URL = get_api_url() # Ganti dengan URL server Anda
 
 #
 # --- [DARI CONTOH] Class Worker untuk Registrasi Wajah ---
@@ -293,6 +294,10 @@ class RegisterPage(QWidget):
         title.setFont(QFont("Segoe UI", 18, QFont.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setObjectName("titleLabel")
+        
+        self.settings_btn = QPushButton("⚙️ Server Settings")
+        self.settings_btn.setStyleSheet("background: transparent; color: #A9A8C0; border: none;")
+        self.settings_btn.clicked.connect(self.open_settings)
 
         self.user_input = QLineEdit()
         self.user_input.setPlaceholderText("Username")
@@ -347,6 +352,15 @@ class RegisterPage(QWidget):
         layout.addLayout(button_layout) # [MODIFIKASI] Tambahkan HBox
         layout.addWidget(self.back_btn)
         layout.addWidget(self.status_label) # [BARU] Tambahkan label status
+        layout.addWidget(self.settings_btn)
+        
+    def open_settings(self):
+        # Pastikan Anda mengimpor ServerSettingsDialog atau mendefinisikannya di file ini
+        # Jika Anda mendefinisikan ServerSettingsDialog di file terpisah (misal components.py), import dari sana.
+        # Untuk cepatnya, definisikan ulang class ServerSettingsDialog di file ini atau import dari loginpage
+        from loginpage import ServerSettingsDialog 
+        dialog = ServerSettingsDialog(self)
+        dialog.exec()
 
     def apply_styles(self):
         """

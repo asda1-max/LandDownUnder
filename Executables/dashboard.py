@@ -1,6 +1,7 @@
 import os
 import json
 import requests # Perlu requests untuk fetch group list
+from config_manager import get_api_url, save_api_url
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox, QFrame,
@@ -35,7 +36,7 @@ class DashboardPage(QWidget):
         self.switch_to_group = switch_to_group 
         self.user_manager = user_manager
         self.current_user = None
-        self.api_url = "https://morsz.azeroth.site/"
+        
         
         self.init_ui()
         
@@ -178,7 +179,7 @@ class DashboardPage(QWidget):
 
         # 1. Fetch My Groups from API (Server Side Invitation Check)
         try:
-            url = f"{self.api_url}/my_groups/{self.current_user}"
+            url = f"{get_api_url()}/my_groups/{self.current_user}"
             resp = requests.get(url, timeout=5)
             if resp.status_code == 200:
                 groups_data = resp.json().get('groups', [])
@@ -244,7 +245,7 @@ class DashboardPage(QWidget):
         
         try:
             payload = {"group_name": group_name, "creator": self.current_user}
-            resp = requests.post(f"{self.api_url}/create_group", json=payload, timeout=10)
+            resp = requests.post(f"{get_api_url()}/create_group", json=payload, timeout=10)
             
             if resp.status_code == 200:
                 QMessageBox.information(self, "Sukses", f"Grup {group_name} dibuat!")
