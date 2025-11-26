@@ -1,6 +1,7 @@
 import os
 import json
 import requests # Perlu requests untuk fetch group list
+from config_manager import get_api_url, save_api_url
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox, QFrame,
@@ -35,7 +36,7 @@ class DashboardPage(QWidget):
         self.switch_to_group = switch_to_group 
         self.user_manager = user_manager
         self.current_user = None
-        self.api_url = "https://morsz.azeroth.site/"
+        self.api_url = get_api_url()
         
         self.init_ui()
         

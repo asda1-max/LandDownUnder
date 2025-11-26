@@ -5,6 +5,7 @@ import uuid
 import hashlib 
 import json    
 from stegano import lsb
+from config_manager import get_api_url, save_api_url
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox,
@@ -51,7 +52,7 @@ class GroupChatPage(QWidget):
         self.chat_id = f"GROUP_{self.group_name}"
         self.session_crypto = CryptoEngine(shared_password)
         
-        self.api_url = "https://morsz.azeroth.site/"
+        self.api_url = get_api_url()
         self.MAX_FILE_SIZE = 2 * 1024 * 1024 # 2MB
         
         script_file_path = os.path.abspath(__file__)

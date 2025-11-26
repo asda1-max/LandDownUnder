@@ -3,7 +3,8 @@ import sys
 from hashlib import pbkdf2_hmac
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
-import base64  # <-- [BARU] Diperlukan untuk White-Mist
+from config_manager import get_api_url, save_api_url # Pastikan config_manager ada
+import base64
 import hashlib
 import json
 import requests
@@ -13,25 +14,21 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
 
-# --- [BARU] Impor White-Mist ---
-# (Asumsi file WhiteMist.py ada di direktori yang sama)
+# --- Impor White-Mist ---
 try:
     import crossCross
 except ImportError:
     print("PERINGATAN: Modul WhiteMist tidak ditemukan. Fitur enkripsi White-Mist tidak akan berfungsi.")
-    crossCross = None # Hindari crash jika file tidak ada
+    crossCross = None 
 
-# --- FUNGSI HELPER PATH (.EXE) ---
-# (Tidak berubah)
+# --- FUNGSI HELPER PATH ---
 def get_base_path():
-    # ... (kode tidak berubah)
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     else:
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def get_resource_path(relative_path):
-    # ... (kode tidak berubah)
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -39,15 +36,12 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- FUNGSI HASH PASSWORD ---
-# (Tidak berubah)
 def hash_password(password):
-    # ... (kode tidak berubah)
     salt = os.urandom(16)
     hashed_password = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
     return salt.hex(), hashed_password.hex()
 
 def verify_password(stored_salt_hex, stored_hash_hex, password_to_check):
-    # ... (kode tidak berubah)
     try:
         stored_salt = bytes.fromhex(stored_salt_hex)
         stored_hash = bytes.fromhex(stored_hash_hex)
@@ -56,22 +50,27 @@ def verify_password(stored_salt_hex, stored_hash_hex, password_to_check):
     except (ValueError, TypeError):
         return False
 
-# --- [ LOGIKA API KLIEN ] ---
-API_BASE_URL = "https://morsz.azeroth.site/" 
+# =========================================================================
+# [LOGIKA API DINAMIS]
+# Kita TIDAK mendefinisikan API_BASE_URL sebagai variabel global di sini.
+# Kita memanggil get_api_url() di dalam setiap fungsi agar real-time.
+# =========================================================================
 
-# --- MANAJEMEN USER (Tidak berubah) ---
+# --- MANAJEMEN USER ---
 class UserManager:
-    # ... (kode tidak berubah)
     def __init__(self):
-        self.api_url = API_BASE_URL
-        print("UserManager (API Mode) diinisialisasi.")
+        # Tidak menyimpan self.api_url di init agar tidak statis
+        print("UserManager (API Mode - Dynamic) diinisialisasi.")
 
     def register_user(self, username, password):
-        # ... (kode tidak berubah)
         salt_hex, hash_hex = hash_password(password)
         payload = { "username": username, "salt_hex": salt_hex, "hash_hex": hash_hex }
+        
+        # [PENTING] Ambil URL terbaru saat tombol ditekan
+        current_api_url = get_api_url()
+        
         try:
-            response = requests.post(f"{self.api_url}/register", json=payload, timeout=10)
+            response = requests.post(f"{current_api_url}/register", json=payload, timeout=10)
             if response.status_code == 200:
                 return True, response.json().get("message", "Akun berhasil dibuat!")
             else:
@@ -80,113 +79,120 @@ class UserManager:
             return False, f"Koneksi ke server gagal: {e}"
 
     def verify_user(self, username, password):
-        # ... (kode tidak berubah)
         try:
-            response = requests.post(f"{self.api_url}/login", json={"username": username}, timeout=10)
+            # [PENTING] Ambil URL terbaru
+            current_api_url = get_api_url()
+            
+            response = requests.post(f"{current_api_url}/login", json={"username": username}, timeout=10)
             if response.status_code != 200: return False 
             data = response.json()
             stored_salt_hex = data['salt_hex']
             stored_hash_hex = data['hash_hex']
             return verify_password(stored_salt_hex, stored_hash_hex, password)
         except requests.exceptions.RequestException as e:
-            print(f"Verifikasi gagal: Tidak bisa terhubung ke server. {e}")
+            print(f"Verifikasi gagal: Tidak bisa terhubung ke server {current_api_url}. Error: {e}")
             return False
         except Exception as e:
             print(f"Error verifikasi: {e}")
             return False
             
     def get_contacts(self, username):
-        # ... (kode tidak berubah)
         try:
-            response = requests.get(f"{self.api_url}/get_chats/{username}", timeout=10)
+            # [PENTING] Ambil URL terbaru
+            current_api_url = get_api_url()
+            
+            response = requests.get(f"{current_api_url}/get_chats/{username}", timeout=10)
             if response.status_code == 200 and response.json().get("success"):
                 return True, response.json().get("contacts", [])
             else:
-                print(f"Gagal mengambil kontak: {response.json().get('message')}")
+                print(f"Gagal mengambil kontak dari {current_api_url}: {response.json().get('message')}")
                 return False, []
         except requests.exceptions.RequestException as e:
+            # Error ini akan ditangkap oleh dashboard.py untuk memicu popup ganti URL
             print(f"Koneksi error ambil kontak: {e}")
-            return False, []
+            # Kita raise error agar Dashboard tahu koneksi putus
+            raise e 
 
-# --- MANAJEMEN PESAN (Tidak berubah) ---
+# --- MANAJEMEN PESAN ---
 class MessageManager:
-    # ... (kode tidak berubah)
     def __init__(self):
-        self.api_url = API_BASE_URL
-        print("MessageManager (API Mode) diinisialisasi.")
+        print("MessageManager (API Mode - Dynamic) diinisialisasi.")
 
     def get_chat_id(self, user1, user2):
         users = sorted([user1, user2])
         return f"{users[0]}_{users[1]}"
 
     def load_messages(self, chat_id):
-        # ... (kode tidak berubah)
         try:
-            response = requests.get(f"{self.api_url}/load_messages/{chat_id}", timeout=10)
+            # [PENTING] Ambil URL terbaru
+            current_api_url = get_api_url()
+            
+            response = requests.get(f"{current_api_url}/load_messages/{chat_id}", timeout=10)
             if response.status_code == 200:
                 return response.json() 
             else:
                 return []
         except requests.exceptions.RequestException:
-            print("Gagal memuat pesan dari server.")
+            # Bisa di-raise jika ingin notif di chat page, tapi return [] cukup aman
             return [] 
 
     def save_message(self, chat_id, message_data):
-        # ... (kode tidak berubah)
-        message_data_copy = message_data.copy() # [REVISI] Salin data agar tidak merusak metadata lokal
+        message_data_copy = message_data.copy()
         message_data_copy['chat_id'] = chat_id
         if message_data_copy.get('type') in ['stegano', 'file']:
              message_data_copy['data'] = None
-        # Hapus timestamp sisi klien, server akan menambahkannya
         if 'db_timestamp' in message_data_copy:
             del message_data_copy['db_timestamp']
             
         try:
-            def send_in_thread():
+            # [PENTING] Ambil URL DI LUAR thread agar thread pakai URL yang valid saat ini
+            current_api_url = get_api_url()
+            
+            def send_in_thread(target_url):
                 try:
-                    requests.post(f"{self.api_url}/save_message", json=message_data_copy, timeout=10)
-                    print("Pesan (metadata) berhasil dikirim ke server.")
+                    requests.post(f"{target_url}/save_message", json=message_data_copy, timeout=10)
+                    print(f"Pesan berhasil dikirim ke {target_url}.")
                 except requests.exceptions.RequestException as e:
-                    print(f"Gagal mengirim pesan: {e}")
-            threading.Thread(target=send_in_thread, daemon=True).start()
+                    print(f"Gagal mengirim pesan ke {target_url}: {e}")
+            
+            # Oper URL ke dalam thread
+            threading.Thread(target=send_in_thread, args=(current_api_url,), daemon=True).start()
         except Exception as e:
             print(f"Error memulai thread kirim pesan: {e}")
 
-# --- FUNGSI VIGENERE (Tidak berubah) ---
+# --- FUNGSI VIGENERE (HELPER) ---
 def vigenere_encrypt(plain_text, key):
-    # ... (kode tidak berubah)
     if not key: key = "defaultkey"
     payload = {"text": plain_text, "key": key}
     try:
-        response = requests.post(f"{API_BASE_URL}/encrypt/vigenere", json=payload, timeout=5)
+        # [PENTING] Ambil URL terbaru
+        current_api_url = get_api_url()
+        
+        response = requests.post(f"{current_api_url}/encrypt/vigenere", json=payload, timeout=5)
         if response.status_code == 200:
             return response.json().get("result", plain_text)
         else:
-            print(f"Server error Vigenere Encrypt: {response.status_code}")
             return plain_text 
-    except requests.exceptions.RequestException as e:
-        print(f"Koneksi error Vigenere Encrypt: {e}")
+    except requests.exceptions.RequestException:
         return plain_text 
 
 def vigenere_decrypt(encrypted_text, key):
-    # ... (kode tidak berubah)
     if not key: key = "defaultkey"
     payload = {"text": encrypted_text, "key": key}
     try:
-        response = requests.post(f"{API_BASE_URL}/decrypt/vigenere", json=payload, timeout=5)
+        # [PENTING] Ambil URL terbaru
+        current_api_url = get_api_url()
+        
+        response = requests.post(f"{current_api_url}/decrypt/vigenere", json=payload, timeout=5)
         if response.status_code == 200:
             return response.json().get("result", encrypted_text)
         else:
-            print(f"Server error Vigenere Decrypt: {response.status_code}")
             return encrypted_text
-    except requests.exceptions.RequestException as e:
-        print(f"Koneksi error Vigenere Decrypt: {e}")
+    except requests.exceptions.RequestException:
         return encrypted_text 
 
 # --- CRYPTO ENGINE (Modern - AES) ---
-# (Tidak berubah)
 class CryptoEngine:
-    # ... (kode tidak berubah)
     def __init__(self, password: str):
         self.password = password.encode('utf-8')
     def _derive_key(self, salt: bytes) -> bytes:
@@ -209,71 +215,42 @@ class CryptoEngine:
             print(f"CryptoEngine Gagal Dekripsi: {e}")
             raise ValueError("Gagal mendekripsi data: Password salah atau data korup.")
 
-# --- [INSTRUKSI 1: FUNGSI HELPER WHITE-MIST] ---
+# --- FUNGSI HELPER WHITE-MIST ---
 def encrypt_whitemist(data_bytes: bytes, key: str, is_text: bool = False) -> str:
-    """
-    Enkripsi bytes menggunakan White-Mist.
-    Jika is_text=True, data (vigenere) di-encode utf-8 dan dienkripsi.
-    Jika is_text=False (default, untuk file), data di-encode base64 dan dienkripsi.
-    """
     if crossCross is None:
         raise ImportError("Modul WhiteMist tidak ditemukan. Tidak bisa enkripsi.")
-        
     string_to_encrypt = ""
     if is_text:
-        # INSTRUKSI 1: Untuk Teks, langsung encode vigenere (bytes) -> utf-8
         string_to_encrypt = data_bytes.decode('utf-8')
     else:
-        # Default (File): Ubah bytes mentah menjadi string base64
         string_to_encrypt = base64.b64encode(data_bytes).decode('utf-8')
-    
-    # Enkripsi string
     enkripsi = crossCross.state(key=key, salt="Kriptoasik", sugar="FunKripto")
     encrypted_string = enkripsi.letsEncrypt(string_to_encrypt)
-    
     return encrypted_string
 
 def decrypt_whitemist(encrypted_string: str, key: str, is_text: bool = False) -> bytes:
-    """
-    Dekripsi string White-Mist kembali menjadi bytes.
-    Jika is_text=True, data didekripsi dan di-encode utf-8 (untuk vigenere).
-    Jika is_text=False (default, untuk file), data didekripsi dan di-decode base64.
-    """
     if crossCross is None:
         raise ImportError("Modul WhiteMist tidak ditemukan. Tidak bisa dekripsi.")
-        
-    # 1. Dekripsi string White-Mist
     dekripsi = crossCross.deState(key=key, salt="Kriptoasik", sugar="FunKripto")
     decrypted_string = dekripsi.letsDecrypt(encrypted_string)
-    
-    # 2. Kembalikan ke bytes
     if is_text:
-        # INSTRUKSI 1: Untuk Teks, string dekripsi (vigenere) -> utf-8 bytes
         return decrypted_string.encode('utf-8')
     else:
-        # Default (File): Ubah kembali string base64 menjadi bytes
         try:
             decrypted_bytes = base64.b64decode(decrypted_string.encode('utf-8'))
             return decrypted_bytes
         except Exception as e:
-            print(f"Error b64decode White-Mist: {e}")
-            # [PERBAIKAN] Jika gagal decode B64, mungkin ini adalah teks (instruksi 1)
-            # Kembalikan saja sebagai bytes utf-8
-            print("Gagal B64Decode, mencoba fallback ke UTF-8 (mungkin pesan teks lama)...")
+            print(f"Gagal B64Decode WhiteMist, fallback ke UTF-8: {e}")
             return decrypted_string.encode('utf-8')
 
-
 # --- KONFIGURASI KUNCI USB ---
-# (Tidak berubah)
 HARDCODED_SECRET = "ini-adalah-kunci-rahasia-saya-yang-sangat-panjang-12345"
-# ... (sisa kode tidak berubah)
 SALT_SIZE = 16
 KEY_SIZE = 32
 ITERATIONS = 100000
 HASH_ALG = "sha256"
 
 def encrypt_config(plain_text_key, password):
-    # ... (kode tidak berubah)
     salt = get_random_bytes(SALT_SIZE)
     key = pbkdf2_hmac(HASH_ALG, password.encode("utf-8"), salt, ITERATIONS, KEY_SIZE)
     cipher = AES.new(key, AES.MODE_GCM)
@@ -285,7 +262,6 @@ def encrypt_config(plain_text_key, password):
     return json.dumps(encrypted_data).encode("utf-8")
 
 def decrypt_config(encrypted_data_bytes, password):
-    # ... (kode tidak berubah)
     try:
         encrypted_data = json.loads(encrypted_data_bytes.decode("utf-8"))
         salt = bytes.fromhex(encrypted_data["salt"])
