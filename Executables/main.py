@@ -119,9 +119,7 @@ class MainWindow(QStackedWidget):
         self.setFixedSize(1200, 800)
 
 
-# ========== PROGRAM UTAMA ==========
 if __name__ == "__main__":
-    # --- 1️⃣ Verifikasi USB Key dulu sebelum GUI dibuka ---
     root_usb = tk.Tk()
     root_usb.withdraw()
 
@@ -150,11 +148,9 @@ if __name__ == "__main__":
 
     root_usb.destroy()
 
-    # --- 2️⃣ Setelah USB diverifikasi, jalankan GUI utama ---
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    # Tema warna modern
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor("#0f172a"))
     palette.setColor(QPalette.WindowText, QColor("#e0e7ff"))
@@ -172,7 +168,6 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
 
-    # --- 3️⃣ Jalankan thread untuk memantau USB selama app berjalan ---
     monitor_thread = threading.Thread(
         target=monitor_usb_drive,
         args=(app, valid_keys), 
